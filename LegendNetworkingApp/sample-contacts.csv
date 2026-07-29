@@ -1,0 +1,7 @@
+first_name,last_name,nickname,company,title,phones,emails,where_met_place,where_met_city,where_met_note,premises,notes,favorite
+Grace,Nakamura,,Nakamura Ventures,Managing Partner,mobile:+15552001001;work:+15552001002,work:grace@nakamuraventures.com,Founders dinner,Austin,Sat next to me,topic:venture capital:vc|investing;interest:cycling:cycling|sports,Intro'd by Devon; follow up on seed round,TRUE
+Elijah, Portland,EJ,Brightline Health,Product Lead,mobile:+15552001010,personal:ej.brightline@gmail.com,Health tech summit,Boston,,expertise:digital health:health|product;hobby:running:running,Wants a coffee chat in March,FALSE
+Priya,Raman,,Raman Legal,Partner,work:+15552001020,priya@ramanlegal.com;other:priya.raman@proton.me,Bar association mixer,Chicago,Referred by Simone,expertise:IP law:legal|patents,Handles trademark work,FALSE
+Devon,Clarke,,Clarke Capital,,mobile:+15552001030,devon@clarkecap.com,Founders dinner,Austin,Host of the dinner,topic:private equity:pe|finance;event:Founders dinner 2026:dinner|network,Great connector,TRUE
+Aisha,Bello,,,Community Organizer,mobile:+15552001040,aisha.bello@communityfirst.org,Neighborhood town hall,Atlanta,,place:Westside Community Center:community|civic;topic:housing policy:housing|policy|civic,Leading the housing coalition,FALSE
+Marlon,Copeland,Bighead,Unjaded Digital Products,Found,mobile:+14434135773;home:+14434150485,marlon.unjaded@gmail.com,Harrisonburg Innovation Hub,Harrisonburg,at desk,topic:video games,he's a nerd,TRUE

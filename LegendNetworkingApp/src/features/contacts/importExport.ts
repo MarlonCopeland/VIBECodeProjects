@@ -287,7 +287,7 @@ export async function pickCsvText(): Promise<string | null> {
     const res = await fetch(uri);
     return res.text();
   }
-  const FileSystem = await import('expo-file-system');
+  const FileSystem = await import('expo-file-system/legacy');
   return FileSystem.readAsStringAsync(uri);
 }
 
@@ -303,7 +303,7 @@ export async function shareCsv(fileName: string, csvText: string): Promise<void>
     URL.revokeObjectURL(url);
     return;
   }
-  const FileSystem = await import('expo-file-system');
+  const FileSystem = await import('expo-file-system/legacy');
   const Sharing = await import('expo-sharing');
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(uri, csvText);
