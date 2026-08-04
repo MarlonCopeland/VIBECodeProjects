@@ -16,12 +16,14 @@ import { callTargets, dial, type OutreachTarget } from '../../../src/features/ou
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
 import { describeFreshness } from '../../../src/features/contacts/grading';
 import { notify } from '../../../src/lib/notify';
+import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 
 export default function CallListScreen() {
   const { circleId } = useLocalSearchParams<{ circleId?: string }>();
   const router = useRouter();
   const { colors, spacing } = useTheme();
   const { circles, contacts, gradeFor, logInteraction } = useContacts();
+  const { applyMeExclusion } = useAppSettings();
 
   const circle = circles.find((c) => c.id === circleId);
 
@@ -30,7 +32,7 @@ export default function CallListScreen() {
     const members = circle
       ? matchCircle(circle, contacts, gradeFor).map((m) => m.contact)
       : contacts;
-    return callTargets(members).sort((a, b) => {
+    return callTargets(applyMeExclusion(members)).sort((a, b) => {
       const fa = gradeFor(a.contact.id).freshnessDays;
       const fb = gradeFor(b.contact.id).freshnessDays;
       if (fa === null && fb === null) return 0;
@@ -38,7 +40,7 @@ export default function CallListScreen() {
       if (fb === null) return 1;
       return fb - fa;
     });
-  }, [circle, contacts, gradeFor]);
+  }, [circle, contacts, gradeFor, applyMeExclusion]);
 
   const [index, setIndex] = useState(0);
   const [calledIds, setCalledIds] = useState<string[]>([]);

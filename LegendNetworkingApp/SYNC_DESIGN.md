@@ -98,6 +98,51 @@ device at a time, doesn't have the concurrent-structural-edit problem those
 solve, and field-level LWW is a fraction of the complexity for the same
 correctness in this domain.
 
+## The zero-knowledge server boundary (decided 2026-08-05)
+
+The original Supabase schema (migration 0002) mirrored the contact graph in
+Postgres — plaintext `contacts` / `interactions` / `circles` tables the
+operator could read. That contradicted everything above, and it's gone
+(migration 0005 dropped the tables; `supabaseContacts.ts` deleted). The
+server-side split is now:
+
+| Concern                            | Where it lives                             | Operator can read? |
+| ---------------------------------- | ------------------------------------------ | ------------------ |
+| Accounts (sign-up, last login)     | `auth.users`, `profiles`, `push_tokens`    | yes — account data |
+| Usage metrics / stability          | `usage_events`, profile rollups            | yes — telemetry    |
+| Sync entitlement (paid upgrade)    | `subscriptions`                            | yes — billing      |
+| Contact graph                      | **on-device SQLite vault ONLY**            | **no — never sent**|
+| Sync oplog (opt-in, paid)          | `sync_changes` — encrypted `payload` only  | **no — ciphertext**|
+| Vault snapshots (opt-in, paid)     | `vaults` storage bucket — encrypted blobs  | **no — ciphertext**|
+
+Concretely, `sync_changes` no longer even has `tbl`/`row_id`/`patch`
+columns — which table and row a change touches is itself relationship
+metadata, so the whole change record is encrypted client-side into one
+opaque `payload` (base64 nonce+AEAD ciphertext, key derived on-device,
+never sent to the server). Plaintext keeps only what routing needs:
+`owner_id`, `device_id`, `hlc`, and the server-assigned cursor `id`.
+Both backend modes (`local`, `supabase`) now use the same on-device
+`ContactsApi`; APP_BACKEND only chooses where *accounts* live.
+
+**Where the vault blob itself can be held** (for backup/bootstrap, all as
+ciphertext the relay can't open):
+
+1. **Supabase Storage `vaults` bucket** (built, migration 0005) — private,
+   owner-folder RLS, gated on the sync subscription. Chosen default: one
+   platform, one bill, and zero-knowledge is preserved because encryption
+   happens before upload — Supabase being able to *hold* the file is fine
+   precisely because it can't *read* it.
+2. **User-owned cloud (iCloud/CloudKit private DB, Google Drive)** — the
+   Obsidian-purist option; the operator never even hosts ciphertext. Free
+   quota rides on the user's account. Costs per-platform integration work,
+   and iOS device backups already cover the single-device restore case.
+3. **Any S3-compatible bucket (R2/S3/B2)** — same properties as (1) with
+   more knobs; only worth it if egress pricing or Supabase limits bite.
+
+(2) and (3) remain compatible later because the uploaded artifact is just
+an encrypted file — the storage target is swappable transport, exactly like
+the sync relay itself.
+
 ## Privacy and portability
 
 - **At rest:** encrypt the SQLite file itself (SQLCipher, or a key held in

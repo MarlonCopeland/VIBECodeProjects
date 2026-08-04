@@ -20,7 +20,15 @@
     "production": {
       "autoIncrement": true,
       "env": {
-        "APP_BACKEND": "supabase"
+        "APP_BACKEND": "supabase",
+        "FEATURE_PALETTE_STORE": "false"
+      }
+    },
+    "testflight": {
+      "extends": "production",
+      "env": {
+        "APP_BACKEND": "local",
+        "FEATURE_PALETTE_STORE": "true"
       }
     }
   },

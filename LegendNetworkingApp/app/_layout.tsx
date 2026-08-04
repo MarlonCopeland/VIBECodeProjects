@@ -3,10 +3,12 @@
 // The auth GATE lives here: it watches auth status and redirects between the
 // (auth) and (app) route groups so screens never have to check auth manually.
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Slot, SplashScreen, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { AppProviders } from '../src/providers/AppProviders';
+import { AnimatedSplash } from '../src/components/AnimatedSplash';
+import { recordAppOpenOnce } from '../src/features/metrics/usage';
 import { useAuth } from '../src/features/auth/AuthContext';
 import { useTheme } from '../src/theme/ThemeProvider';
 
@@ -18,9 +20,21 @@ function RootNavigator() {
   const segments = useSegments();
   const router = useRouter();
 
+  // The native splash is swapped for an identical animated overlay the first
+  // time auth resolves; the overlay then fades/zooms out to reveal the app.
+  // AnimatedSplash guards internally so hideAsync() runs exactly once — calling
+  // it again after the splash is gone makes iOS throw "No native splash screen
+  // registered for given view controller".
+  const [splashDone, setSplashDone] = useState(false);
+
+  // Usage metrics: one app-open ping per launch, once signed in. Best-effort;
+  // a no-op on the local/demo backend.
+  useEffect(() => {
+    if (status === 'authenticated') void recordAppOpenOnce();
+  }, [status]);
+
   useEffect(() => {
     if (status === 'loading') return;
-    SplashScreen.hideAsync().catch(() => {});
 
     const group = segments[0]; // '(auth)' | '(app)' | undefined
     const inAuthGroup = group === '(auth)';
@@ -46,6 +60,9 @@ function RootNavigator() {
     <>
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <Slot />
+      {!splashDone ? (
+        <AnimatedSplash ready={status !== 'loading'} onDone={() => setSplashDone(true)} />
+      ) : null}
     </>
   );
 }

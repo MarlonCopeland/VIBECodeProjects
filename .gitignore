@@ -1,35 +1,37 @@
-```gitignore
+# VIBES monorepo — several Expo/React Native apps live side by side, so all
+# patterns are unanchored to cover every app directory.
+
 # Dependencies
-/node_modules
+node_modules/
 yarn-error.log*
 
-# Build output
-/ios/build
-/android/app/build
-/android/.gradle
-*.xcworkspace # Ignore workspace files that might contain build artifacts
-/Podfile.lock # Sometimes useful but if other people update pods, we want to regenerate it sometimes. However, generally better to keep it unless explicitly instructed otherwise. Let's exclude build specific outputs instead.
+# Environment (keys/secrets — each app ships a .env.example instead)
+.env
+
+# Expo / Metro build artifacts
+.expo/
+dist/
+metro-cache/
+web-build/
+
+# Native build output
+ios/build/
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+ios/Pods/
+
+# Supabase CLI scratch
+supabase/.temp/
 
 # OS generated files
 .DS_Store
 Snapshots*
 
 # Logs and temporary data
-npm-debug.log-*
-yarn-error.log*
+npm-debug.log*
 *.swp
 
-# Metro Bundler cache directory (usually found in the project root or android/app/.cache)
-# It's safer to ignore specific directories if they appear, but usually just letting node_modules/ and build outputs handle it is fine. A dedicated one:
-node_modules/.cache/
-metro-cache/
-
-# Testing/Linting/Coverage reports (if generated during CI or local runs)
+# Test coverage
 coverage/
-__mocks__/
-
-# Platform Specifics (These are generally already covered, but good to keep explicit)
-android/local.properties # Highly sensitive file containing local machine paths
-android/.idea/ # Android Studio files
-ios/Pods/ # Should be managed by pod install, but sometimes build artifacts land here.
-```

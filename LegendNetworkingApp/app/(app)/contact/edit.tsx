@@ -3,7 +3,7 @@
 // creates one. Includes editors for phones/emails, where-met, and premises
 // (kind + label + tags).
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,7 @@ import {
   type PremiseKind,
 } from '../../../src/features/contacts/types';
 import { notify } from '../../../src/lib/notify';
+import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 
 interface PremiseDraft {
   id: string;
@@ -33,10 +34,11 @@ interface PremiseDraft {
 }
 
 export default function ContactEditScreen() {
-  const { id } = useLocalSearchParams<{ id?: string }>();
+  const { id, me } = useLocalSearchParams<{ id?: string; me?: string }>();
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
   const { contactById, createContact, updateContact } = useContacts();
+  const { setMeContactId } = useAppSettings();
 
   const existing = id ? contactById(id) : undefined;
 
@@ -64,6 +66,44 @@ export default function ContactEditScreen() {
     })),
   );
   const [saving, setSaving] = useState(false);
+  const [autoLocated, setAutoLocated] = useState(false);
+
+  // New contacts: prefill where-met from the current location ("you're
+  // probably adding them from where you just met"). Best-effort and silent —
+  // permission denied, web, or geocoder failure just leaves the fields blank.
+  // The user can always edit or clear the result.
+  useEffect(() => {
+    if (existing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const Location = await import('expo-location');
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (cancelled) return;
+        const places = await Location.reverseGeocodeAsync(pos.coords);
+        const place = places[0];
+        if (!place || cancelled) return;
+        const spot = place.name || place.street || '';
+        setMetPlace((prev) => {
+          if (prev) return prev; // never clobber something the user typed
+          if (spot) setAutoLocated(true);
+          return spot;
+        });
+        setMetCity((prev) => prev || place.city || '');
+      } catch {
+        /* location is a nicety, never an error */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Run once on mount for new contacts only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const save = async () => {
     if (!firstName.trim() && !lastName.trim()) {
@@ -99,8 +139,13 @@ export default function ContactEditScreen() {
     };
     setSaving(true);
     try {
-      if (existing) await updateContact(existing.id, input);
-      else await createContact(input);
+      if (existing) {
+        await updateContact(existing.id, input);
+      } else {
+        const created = await createContact(input);
+        // Arrived via the ME tab's "Create my card" → designate as me.
+        if (me === '1') setMeContactId(created.id);
+      }
       router.back();
     } catch (e) {
       notify('Save failed', e instanceof Error ? e.message : String(e));
@@ -200,6 +245,11 @@ export default function ContactEditScreen() {
 
       <Card style={{ marginBottom: spacing.md }}>
         <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>WHERE WE MET</Text>
+        {autoLocated ? (
+          <Text variant="caption" tone="muted" style={{ marginBottom: spacing.xs }}>
+            📍 Filled from your current location — edit or clear if you met elsewhere.
+          </Text>
+        ) : null}
         <TextField label="Place" placeholder="e.g. Chamber of Commerce mixer" value={metPlace} onChangeText={setMetPlace} />
         <TextField label="City" value={metCity} onChangeText={setMetCity} />
         <TextField label="Note" placeholder="Anything worth remembering about the meeting" value={metNote} onChangeText={setMetNote} />

@@ -15,4 +15,10 @@ config.resolver.extraNodeModules = {
   '@opentelemetry/api': path.resolve(__dirname, 'src/shims/empty.js'),
 };
 
+// expo-sqlite's web build imports `wa-sqlite.wasm`; Metro only bundles it if
+// `.wasm` is a recognized asset extension (per the expo-sqlite web docs).
+if (!config.resolver.assetExts.includes('wasm')) {
+  config.resolver.assetExts.push('wasm');
+}
+
 module.exports = config;

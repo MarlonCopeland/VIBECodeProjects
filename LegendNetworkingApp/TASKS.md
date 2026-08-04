@@ -208,8 +208,13 @@ user can pin/exclude to override.
 
 ### Phase 7 — Polish & hardening (NEXT)
 
-- [ ] Wire Supabase backend end-to-end (apply 0002 migration to a real
-      project, smoke-test CRUD parity with local)
+- [x] Wire Supabase backend end-to-end (2026-08-04): live project
+      **LegendNetworkingApp** (ref `krxszvviuqlzxxcvhyss`, ca-central-1),
+      CLI linked, migrations 0001–0004 pushed and verified via
+      `supabase migration list`. `.env` set to `APP_BACKEND=supabase` with
+      the project URL. **Remaining manual step:** paste the anon key into
+      `.env` (`SUPABASE_ANON_KEY=`, from Dashboard → Project Settings → API
+      Keys), then smoke-test sign-up + contact CRUD in the app.
 - [ ] Import/export entry points in Settings too (currently only on the
       Contacts tab header)
 - [ ] "Fading contacts" nudge: settings toggle + local notification when a
@@ -268,6 +273,20 @@ user can pin/exclude to override.
       - [ ] `changes` table + append-on-write, still no network
 - [ ] **8.3 Sync engine** — push/pull `changes` against a Supabase
       `changes` table; Realtime for live push between online devices
+  - [x] **Server groundwork (2026-08-04):** `supabase/migrations/0004` —
+        `sync_changes` oplog table (owner_id, device_id, tbl, row_id, hlc,
+        jsonb patch; identity id = pull cursor) with RLS requiring an ACTIVE
+        sync subscription (paywall enforced in the database), added to the
+        Realtime publication. Client engine (push/pull/merge) still to build.
+  - [x] **Sync-as-paid-upgrade (2026-08-04):** `subscriptions` table
+        (monthly $2.99 / yearly $19.99 — save 44%; RLS lets clients write
+        only `source='beta'` rows, so paid rows can only come from future
+        server-side receipt validation). New `sync` feature flag +
+        `src/features/sync/subscriptionService.ts` + Settings → Legend Sync
+        screen: plan cards, free-in-beta unlock (honest copy), per-device
+        opt-in toggle (`AppSettings.syncEnabled`, default OFF), cancel.
+        Real StoreKit auto-renewing subscription required before charging
+        (same App Store constraint as palette IAP).
 - [ ] **8.4 End-to-end encryption** — encrypt `patch` payloads client-side
       before they reach the relay (zero-knowledge server); encrypt the
       on-device SQLite file at rest
@@ -295,10 +314,205 @@ user can pin/exclude to override.
 - **Screens never touch the backend directly** — always
   `backend.contacts.*` via a service/context (see `ARCHITECTURE.md`).
 - Both backends (`local`, `supabase`) must stay contract-identical; develop
-  against `local`, verify against `supabase` in Phase 7.
+  against `local`, verify against `supabase` in Phase 7. **Zero-knowledge
+  boundary (2026-08-05):** contacts/relationships live ONLY in the on-device
+  SQLite vault — both backend modes share the same local `ContactsApi`, and
+  `APP_BACKEND` only chooses where accounts/metrics live. Nothing readable
+  about a user's network may ever be written server-side (sync relays
+  ciphertext only). See SYNC_DESIGN.md "zero-knowledge server boundary".
 - Grading is **computed, never stored** — the interaction log is the truth.
 - Themed primitives from `src/components` only; colors via `useTheme()`,
   rarity colors only via `TIER_COLORS`.
 - New routes live under `app/(app)/…` and inherit the auth gate for free.
 - After each phase: `npm run typecheck` must pass; update this file's boxes.
 - Node 18–20 only (`nvm use`) — Node 22+ breaks Expo SDK 52's config loader.
+
+
+## Added By Marlon (UX round 1) — implemented 2026-07-30
+
+- [x] **ME tab** — Profile tab renamed "Me" (`person-circle` icon). Your card is
+      a regular contact designated as "me" (`AppSettingsContext.meContactId`):
+      create one or pick an existing contact on the Me tab. Shows a QR code
+      (vCard 3.0 via `react-native-qrcode-svg` — any phone camera adds it
+      straight to its contacts), editable through the normal contact editor,
+      "ME" badge on its row in the list, and a Settings toggle (default ON)
+      that keeps it out of text/email/call blasts.
+- [x] **GPS where-met** — new contacts prefill Place/City from
+      `expo-location` reverse geocoding (best-effort, silent on deny/failure,
+      never clobbers typed text; config plugin + permission copy added).
+- [x] **Consolidated + menu** — one + button on Contacts opens a themed
+      bottom sheet (`OptionSheet`): New contact / Import from phone / Import
+      CSV. CSV export moved to Settings → "Your data". Contact delete warns
+      that Legend never touches other sources (phone book, feeds) so the
+      contact may return on next import unless removed there too.
+- [x] **Multi-number choosers** — contact-detail Call/Text/Email open a
+      chooser sheet when the contact has more than one number/email.
+- [x] **Sort/filter** — funnel icon right of the search bar: sort by Name /
+      Grade / Stalest / Newest, filter by rarity tier (multi) + favorites.
+      A–Z rail only shows for the alphabetical sort.
+- [x] **Circle-create toast error fixed** — was expo-splash-screen's
+      `hideAsync()` re-firing on every navigation (segments were a dep of the
+      auth-gate effect). Now hides exactly once. (`testing_images` screenshot)
+- [x] **Back button** — chevron-only (`headerBackButtonDisplayMode:
+      'minimal'`); no more "(tabs)" label.
+- [x] **Logo** — generated brand set in `assets/`: concentric
+      circles-of-influence mark in the five rarity colors (gray → gold core)
+      on Legend navy. icon (1024 opaque), adaptive-icon, splash + wordmark,
+      favicon, white notification icon.
+- [x] **Recent contacts view** — All | Recent segment on the Contacts tab;
+      Recent sorts by last touch (never-contacted last) with per-row quick
+      call/text/email buttons (first number/email; detail screen has the full
+      chooser). Settings → Contacts picks which view the tab opens on.
+- [x] **Configurable grading + templates + palettes** (2026-07-30) — Settings
+      now drives the whole grading engine. `grading.ts` is config-driven
+      (`GradingConfig` threaded via `AppSettingsContext.gradingConfig` →
+      `ContactsContext`, re-grades live). New Settings screens:
+      - **Grading & scoring** (`app/(app)/settings/grading.tsx`) — per-
+        interaction weights, decay half-life, per-tier score thresholds,
+        disable-decay toggle, reset-to-defaults.
+      - **Rarity colors** (`app/(app)/settings/rarity.tsx`) — palette picker.
+        Free: Classic, Colorblind-friendly, Monochrome. **Premium ($1.99):**
+        Neon, Sunset, Prismatic (animated rainbow shimmer on the hero badge).
+        Entitlements in `AppSettings.unlockedPalettes`.
+      - **Message templates** (`app/(app)/settings/templates.tsx`) — managed
+        named list (text = body; email = subject+body); picked in the text/
+        email blast composers via `TemplateButton`.
+      Reusable `Stepper` + `OptionSheet` primitives. Tests:
+      `grading.test.ts` +5 config cases (31 total pass).
+  - [ ] **Premium palette IAP — deferred, needs App Store products.** Unlocks
+        are FREE DURING BETA (`paletteStore.purchasePalette` is a no-charge
+        stub; UI says so). Real charging requires StoreKit In-App Purchase +
+        App Store Connect non-consumable products (iOS forbids Stripe for
+        digital goods) + receipt validation. Wire when the store is set up.
+
+- [x] **CSV field-mapping step** (2026-07-30) — CSV import now shows a
+      "Match CSV Columns" screen between file-pick and preview: auto-guessed
+      mappings (Legend's export maps 1:1; Google/Outlook-style headers matched
+      by alias, ALL phone/email columns collected as multi-mappings), sample
+      values per column, remap/skip per field, then the unchanged
+      dedupe/preview/confirm. Engine is pure + Node-tested:
+      `src/features/contacts/csvMapping.ts` + `test/importExport.test.ts`
+      (11 tests). Try it with `test-google-format.csv`.
+  - [ ] **Phone widget / call-log accuracy — deferred, needs a dev build.**
+        A home-screen widget requires a native WidgetKit/Glance extension
+        (impossible in Expo Go; needs `expo-apple-targets` or similar +
+        EAS build). iOS provides NO API for reading the call/SMS log at all;
+        Android gates `READ_CALL_LOG` behind special Play review. So "recent"
+        is Legend-logged interactions, which is also the honest definition.
+        Revisit alongside the TestFlight/dev-build track.
+
+## Added By Marlon (UX round 2) — implemented 2026-08-03
+
+- [x] **Support section in Settings** — "Report a bug" and "Share a
+      suggestion" rows open a prefilled `mailto:marlon.unjaded@gmail.com`
+      (subject carries the app version; body template includes platform +
+      version). Falls back to a toast with the address if no mail app.
+- [x] **Animated splash reveal** — new `src/components/AnimatedSplash.tsx`
+      renders an exact copy of the native splash (same image + `#0B0D12`
+      background) as an overlay, hides the native splash behind it exactly
+      once, then zoom-fades out (350 ms hold → 500–600 ms scale+fade) to
+      reveal the app. Replaces the old hard cut in `app/_layout.tsx`.
+- [x] **First-run tutorial** — `app/(app)/tutorial.tsx`: four swipeable
+      slides (Welcome/ownership, Grades & rarity — pills use the ACTIVE
+      palette, Circles of Influence, Outreach) with paging dots, Skip, and
+      Next/Get started. Auto-opens once after settings load (gated on new
+      persisted `AppSettings.hasSeenTutorial`; trigger in
+      `app/(app)/_layout.tsx`), re-viewable via Settings → Support →
+      "View the tutorial".
+- [x] **Web bundling fix** — `npx expo export --platform web` was failing:
+      expo-sqlite's web worker imports `wa-sqlite.wasm` but `.wasm` wasn't in
+      Metro's asset extensions. `metro.config.js` now pushes `wasm` onto
+      `resolver.assetExts` (per expo-sqlite web docs). Export verified clean.
+
+## Backend & metrics round — implemented 2026-08-04
+
+- [x] **Supabase connected** — see Phase 7 first checkbox (project ref
+      `krxszvviuqlzxxcvhyss`; anon key paste is the one manual step left).
+      `supabase/config.toml` fixed for CLI 2.x (`enable_confirmations`
+      belongs under `[auth.email]`).
+- [x] **Account & usage metrics** — `supabase/migrations/0003`:
+      sign-up date + last login already native in `auth.users`
+      (`created_at` / `last_sign_in_at`); added `profiles.last_seen_at` +
+      `profiles.app_opens` rollups, append-only `usage_events` table
+      (owner-scoped RLS), and a `record_app_open(platform, version)`
+      SECURITY DEFINER RPC. Client: `src/features/metrics/usage.ts` pings it
+      once per launch after sign-in (best-effort, silent no-op on the local
+      backend). Dashboard queries for DAU/opens are in the migration header.
+- [x] **Sync paywall + oplog groundwork** — see Phase 8.3 sub-items.
+
+## Zero-knowledge redesign — implemented 2026-08-05
+
+- [x] **Supabase no longer mirrors the contact graph.** Migration
+      `0005_zero_knowledge.sql` drops the plaintext `contacts` /
+      `interactions` / `circles` tables from 0002 (they were never reachable
+      in production — the anon key was never configured). Postgres now holds
+      only: accounts (`auth.users`/`profiles`/`push_tokens`), metrics
+      (`usage_events` + rollups), entitlements (`subscriptions`), and two
+      ciphertext-only stores.
+- [x] **`sync_changes` reduced to an opaque envelope** — `tbl`/`row_id`/
+      `patch` columns dropped (which row changed is itself relationship
+      metadata); replaced by a single client-side-encrypted `payload` +
+      `key_id`. Plaintext keeps only routing: owner, device, HLC, cursor id.
+- [x] **`vaults` private storage bucket** for encrypted SQLite vault
+      snapshots (256 MB cap, owner-folder RLS, requires active sync sub) —
+      backup/new-device bootstrap without replaying the whole oplog.
+      Alternatives (iCloud/CloudKit, S3/R2) evaluated in SYNC_DESIGN.md;
+      swappable later since the artifact is just an encrypted file.
+- [x] **Client:** `supabaseBackend.contacts` now IS the on-device SQLite
+      vault (`localContacts`); `supabaseContacts.ts` deleted. Contacts never
+      leave the device in plaintext regardless of backend mode.
+
+## App Store / TestFlight review readiness
+
+> **Distribution decision (2026-07-30): ship via TestFlight INTERNAL testing
+> first.** Internal testing (up to 100 App Store Connect team members) needs
+> **no Beta App Review** — none of the blockers below gate getting Legend onto
+> our own devices. They only bite for **external** testing (public link, ≤10k)
+> or a full App Store release. Checklist kept here so external/release is a
+> known quantity, not a surprise rejection.
+
+### 🔴 Hard blockers (Apple rejects) — required before EXTERNAL / release
+
+- [x] **Photo-library permission string.** DONE (2026-08-03): `expo-image-picker`
+      added to `app.config.js` plugins with honest `photosPermission` copy, so
+      `NSPhotoLibraryUsageDescription` is set on the next prebuild/EAS build.
+- [x] **Premium-palette pricing without real IAP** (Guideline 3.1.1). DONE
+      (2026-08-03): new `FEATURE_PALETTE_STORE` flag →
+      `extra.paletteStoreEnabled` → `PALETTE_STORE_ENABLED` in `env.ts`.
+      When off, Rarity Colors shows locked premium palettes as "Coming soon"
+      (no price, no Unlock button). `eas.json` forces it **off** for
+      `production` (external/release) and **on** for `testflight` (internal);
+      dev/.env defaults on. Real StoreKit IAP still deferred (see above).
+- [ ] **Privacy policy URL** (mandatory to submit; doubly so because we import
+      Contacts). → DONE as content: hosted at
+      `unjaded.net/legend/privacy_policy.html`, `PRIVACY.md` in repo, linked
+      in-app (Settings). **Remaining is manual, not code:** enter the URL +
+      complete the App Privacy "nutrition label" questionnaire in App Store
+      Connect.
+
+### 🟡 Should-fix (rejection risk / friction) — before external
+
+- [x] **Social-login buttons are demo stubs on the local backend.** DONE
+      (2026-08-03): `env.ts` now forces `GOOGLE_AUTH_ENABLED` /
+      `APPLE_AUTH_ENABLED` to false whenever `BACKEND !== 'supabase'`, so
+      local/testflight builds are email-only and reviewers can't hit the fake
+      OAuth path. Supabase builds still honor the `AUTH_*_ENABLED` env flags.
+- [x] **Export-compliance prompt.** DONE (2026-08-03):
+      `ios.config.usesNonExemptEncryption: false` added to `app.config.js`.
+- [x] **Placeholder copy.** DONE (verified 2026-08-03): footer already reads
+      "Legend by Unjaded Digital Products · signed in as …".
+
+### 🟢 Already compliant
+
+- Account **deletion** in-app (Settings → Delete account) — required because
+  signup exists (Guideline 5.1.1(v)). ✅
+- **Contacts + location** permission strings present and honest; location is
+  when-in-use, only on add-contact. ✅
+- **Bulk SMS** uses the native composer with per-message user confirmation (the
+  stepper) — not silent mass-send. ✅
+
+### For the reviewer (when we go external)
+
+- App uses the **local demo backend** in the TestFlight build, so sign-up works
+  offline with any email — no demo credentials needed. (If a Supabase build is
+  submitted later, provide review credentials in App Store Connect notes.)

@@ -18,6 +18,7 @@ export const FEATURE_IDS = [
   'settings',
   'notifications',
   'payments',
+  'sync',
 ] as const;
 
 export type FeatureId = (typeof FEATURE_IDS)[number];
@@ -86,6 +87,13 @@ export const FEATURE_MANIFESTS: Record<FeatureId, FeatureManifest> = {
     description: 'Stripe-backed subscription tiers with a pluggable payment provider.',
     core: false,
   },
+  sync: {
+    id: 'sync',
+    title: 'Legend Sync',
+    description:
+      'Opt-in paid upgrade: back up and sync your network between devices through an end-to-end-encrypted change log. Local data stays authoritative.',
+    core: false,
+  },
 };
 
 const DEFAULTS: FeatureFlags = {
@@ -97,6 +105,7 @@ const DEFAULTS: FeatureFlags = {
   settings: true,
   notifications: true,
   payments: false,
+  sync: true,
 };
 
 function resolveFlags(): FeatureFlags {

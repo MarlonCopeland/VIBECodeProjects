@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { computeGrade, tierForScore } from '../src/features/contacts/grading';
+import {
+  computeGrade,
+  tierForScore,
+  DEFAULT_GRADING_CONFIG,
+  type GradingConfig,
+  type TierSpec,
+} from '../src/features/contacts/grading';
 import type { Interaction } from '../src/features/contacts/types';
 
 function interaction(kind: Interaction['kind'], daysAgo: number): Interaction {
@@ -54,5 +60,48 @@ describe('grading', () => {
     expect(tierForScore(79).id).toBe('epic');
     expect(tierForScore(80).id).toBe('legendary');
     expect(tierForScore(100).id).toBe('legendary');
+  });
+});
+
+describe('grading — user config', () => {
+  it('honors custom interaction weights', () => {
+    const config: GradingConfig = {
+      ...DEFAULT_GRADING_CONFIG,
+      weights: { ...DEFAULT_GRADING_CONFIG.weights, visit: 40 },
+    };
+    expect(computeGrade([interaction('visit', 0)], NOW, config).score).toBe(40);
+  });
+
+  it('does not decay when decay is disabled', () => {
+    const config: GradingConfig = { ...DEFAULT_GRADING_CONFIG, decayEnabled: false };
+    // Full weight regardless of age (default would decay a 45-day-old call to 5).
+    expect(computeGrade([interaction('call', 45)], NOW, config).score).toBe(10);
+  });
+
+  it('decays faster with a shorter half-life', () => {
+    const config: GradingConfig = { ...DEFAULT_GRADING_CONFIG, halfLifeDays: 10 };
+    // 45 days at a 10-day half-life => 10 * 0.5^4.5 ≈ 0.44 -> rounds to 0.
+    expect(computeGrade([interaction('call', 45)], NOW, config).score).toBe(0);
+  });
+
+  it('applies custom tier thresholds via config.tiers', () => {
+    const tiers: TierSpec[] = [
+      { id: 'common', label: 'Common', color: '#000', min: 0 },
+      { id: 'legendary', label: 'Legendary', color: '#fff', min: 10 },
+    ];
+    const config: GradingConfig = { ...DEFAULT_GRADING_CONFIG, tiers };
+    // A single visit (15) clears a lowered Legendary threshold of 10.
+    expect(computeGrade([interaction('visit', 0)], NOW, config).tier.id).toBe('legendary');
+  });
+
+  it('sorts unsorted tiers correctly for boundary lookup', () => {
+    const tiers: TierSpec[] = [
+      { id: 'legendary', label: 'Legendary', color: '#fff', min: 50 },
+      { id: 'common', label: 'Common', color: '#000', min: 0 },
+    ];
+    // tierForScore requires ascending order; pass sorted as the engine does.
+    const sorted = [...tiers].sort((a, b) => a.min - b.min);
+    expect(tierForScore(20, sorted).id).toBe('common');
+    expect(tierForScore(60, sorted).id).toBe('legendary');
   });
 });

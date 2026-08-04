@@ -17,20 +17,23 @@ import { matchCircle } from '../../../src/features/circles/circlesService';
 import { composeSms, personalize, smsTargets } from '../../../src/features/outreach/outreachService';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
 import { notify } from '../../../src/lib/notify';
+import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
+import { TemplateButton } from '../../../src/features/outreach/TemplateButton';
 
 export default function TextBlastScreen() {
   const { circleId } = useLocalSearchParams<{ circleId?: string }>();
   const router = useRouter();
   const { spacing } = useTheme();
   const { circles, contacts, gradeFor, logInteraction } = useContacts();
+  const { applyMeExclusion } = useAppSettings();
 
   const circle = circles.find((c) => c.id === circleId);
   const targets = useMemo(() => {
     const members = circle
       ? matchCircle(circle, contacts, gradeFor).map((m) => m.contact)
       : contacts;
-    return smsTargets(members);
-  }, [circle, contacts, gradeFor]);
+    return smsTargets(applyMeExclusion(members));
+  }, [circle, contacts, gradeFor, applyMeExclusion]);
 
   const [message, setMessage] = useState('');
   const [index, setIndex] = useState(0);
@@ -64,6 +67,7 @@ export default function TextBlastScreen() {
         {`${targets.length} contact${targets.length === 1 ? '' : 's'} with a phone number. Each gets an individual text — nobody sees a group thread.`}
       </Text>
 
+      <TemplateButton channel="text" onPick={(t) => setMessage(t.body)} />
       <TextField
         label="Message"
         placeholder="Hey {first} — it's been a minute! …"

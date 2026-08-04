@@ -11,7 +11,9 @@
 
 import type { Interaction, InteractionKind } from './types';
 
-export const INTERACTION_WEIGHTS: Record<InteractionKind, number> = {
+export type InteractionWeights = Record<InteractionKind, number>;
+
+export const INTERACTION_WEIGHTS: InteractionWeights = {
   visit: 15,
   call: 10,
   premise: 8,
@@ -49,6 +51,29 @@ export const TIER_COLORS: Record<TierId, string> = Object.fromEntries(
   TIER_SPECS.map((t) => [t.id, t.color]),
 ) as Record<TierId, string>;
 
+/**
+ * All the user-tunable grading inputs. Passed into the pure functions below
+ * so the engine stays deterministic — the app resolves this from persisted
+ * settings (weights, decay half-life, per-tier thresholds + colors) in
+ * AppSettingsContext and threads it through ContactsContext.
+ */
+export interface GradingConfig {
+  weights: InteractionWeights;
+  /** Half-life in days; ignored when `decayEnabled` is false. */
+  halfLifeDays: number;
+  /** When false, scores never decay — grade purely by accumulated weight. */
+  decayEnabled: boolean;
+  /** Ordered lowest→highest; carries each tier's min threshold + color. */
+  tiers: readonly TierSpec[];
+}
+
+export const DEFAULT_GRADING_CONFIG: GradingConfig = {
+  weights: INTERACTION_WEIGHTS,
+  halfLifeDays: HALF_LIFE_DAYS,
+  decayEnabled: true,
+  tiers: TIER_SPECS,
+};
+
 export interface Grade {
   /** 0–100, computed from the decayed interaction log. */
   score: number;
@@ -60,25 +85,36 @@ export interface Grade {
 
 const MS_PER_DAY = 86_400_000;
 
-export function tierForScore(score: number): TierSpec {
-  let tier: TierSpec = TIER_SPECS[0]!;
-  for (const t of TIER_SPECS) {
+/** The tier a score falls into. `tiers` must be sorted ascending by `min`. */
+export function tierForScore(score: number, tiers: readonly TierSpec[] = TIER_SPECS): TierSpec {
+  let tier: TierSpec = tiers[0]!;
+  for (const t of tiers) {
     if (score >= t.min) tier = t;
   }
   return tier;
 }
 
 /** Decayed value of a single interaction at time `nowMs`. */
-export function interactionValue(interaction: Interaction, nowMs: number): number {
+export function interactionValue(
+  interaction: Interaction,
+  nowMs: number,
+  config: GradingConfig = DEFAULT_GRADING_CONFIG,
+): number {
+  const weight = config.weights[interaction.kind];
+  if (!config.decayEnabled) return weight;
   const ageDays = Math.max(0, (nowMs - Date.parse(interaction.occurredAt)) / MS_PER_DAY);
-  return INTERACTION_WEIGHTS[interaction.kind] * Math.pow(0.5, ageDays / HALF_LIFE_DAYS);
+  return weight * Math.pow(0.5, ageDays / config.halfLifeDays);
 }
 
 /**
  * Grade one contact from its interactions. Interactions for other contacts
  * may be passed; anything whose timestamp fails to parse is ignored.
  */
-export function computeGrade(interactions: Interaction[], nowMs: number = Date.now()): Grade {
+export function computeGrade(
+  interactions: Interaction[],
+  nowMs: number = Date.now(),
+  config: GradingConfig = DEFAULT_GRADING_CONFIG,
+): Grade {
   let sum = 0;
   let lastMs = -Infinity;
   let lastIso: string | null = null;
@@ -86,7 +122,7 @@ export function computeGrade(interactions: Interaction[], nowMs: number = Date.n
   for (const it of interactions) {
     const ts = Date.parse(it.occurredAt);
     if (Number.isNaN(ts)) continue;
-    sum += interactionValue(it, nowMs);
+    sum += interactionValue(it, nowMs, config);
     if (ts > lastMs) {
       lastMs = ts;
       lastIso = it.occurredAt;
@@ -96,7 +132,7 @@ export function computeGrade(interactions: Interaction[], nowMs: number = Date.n
   const score = Math.min(MAX_SCORE, Math.round(sum));
   return {
     score,
-    tier: tierForScore(score),
+    tier: tierForScore(score, config.tiers),
     freshnessDays: lastIso ? Math.max(0, Math.floor((nowMs - lastMs) / MS_PER_DAY)) : null,
     lastInteractionAt: lastIso,
   };
@@ -112,10 +148,13 @@ export function describeFreshness(freshnessDays: number | null): string {
   return `${Math.floor(freshnessDays / 365)}y ago`;
 }
 
-/** Points still needed to reach the next tier (null when Legendary). */
-export function pointsToNextTier(score: number): { next: TierSpec; points: number } | null {
-  const current = tierForScore(score);
-  const idx = TIER_SPECS.findIndex((t) => t.id === current.id);
-  const next = TIER_SPECS[idx + 1];
+/** Points still needed to reach the next tier (null when at the top). */
+export function pointsToNextTier(
+  score: number,
+  tiers: readonly TierSpec[] = TIER_SPECS,
+): { next: TierSpec; points: number } | null {
+  const current = tierForScore(score, tiers);
+  const idx = tiers.findIndex((t) => t.id === current.id);
+  const next = tiers[idx + 1];
   return next ? { next, points: next.min - score } : null;
 }

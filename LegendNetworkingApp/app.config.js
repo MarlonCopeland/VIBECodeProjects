@@ -50,6 +50,11 @@ module.exports = ({ config }) => ({
   ios: {
     supportsTablet: true,
     bundleIdentifier: BUNDLE_ID,
+    config: {
+      // Standard HTTPS only — answers Apple's export-compliance question up
+      // front so every TestFlight upload doesn't stop to ask.
+      usesNonExemptEncryption: false,
+    },
   },
   android: {
     package: BUNDLE_ID,
@@ -80,6 +85,22 @@ module.exports = ({ config }) => ({
     ],
     'expo-sqlite',
     [
+      'expo-image-picker',
+      {
+        // Required purpose string — avatar upload uses the photo library, and
+        // Apple auto-rejects photo access without NSPhotoLibraryUsageDescription.
+        photosPermission:
+          `Allow ${APP_NAME} to access your photo library so you can pick a profile photo. Photos are only used for the avatar you choose.`,
+      },
+    ],
+    [
+      'expo-location',
+      {
+        locationWhenInUsePermission:
+          `${APP_NAME} uses your location once, when you add a contact, to prefill where you met. It is never tracked or shared.`,
+      },
+    ],
+    [
       'expo-notifications',
       {
         icon: './assets/notification-icon.png',
@@ -108,6 +129,13 @@ module.exports = ({ config }) => ({
     googleAuthEnabled: flag(process.env.AUTH_GOOGLE_ENABLED, true),
     appleAuthEnabled: flag(process.env.AUTH_APPLE_ENABLED, true),
 
+    // ---- Premium palette store UI -----------------------------------------
+    // Shows $ prices + Unlock buttons for premium palettes. Fine for INTERNAL
+    // TestFlight, but Apple rejects visible prices without real StoreKit IAP
+    // (Guideline 3.1.1), so eas.json forces this off for external/release
+    // builds until IAP lands.
+    paletteStoreEnabled: flag(process.env.FEATURE_PALETTE_STORE, true),
+
     // ---- Payments (Stripe publishable values only) ------------------------
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
     stripePriceTier1: process.env.STRIPE_PRICE_TIER1 || '',
@@ -124,13 +152,16 @@ module.exports = ({ config }) => ({
       payments: flag(process.env.FEATURE_PAYMENTS, false),
       circles: flag(process.env.FEATURE_CIRCLES, true),
       outreach: flag(process.env.FEATURE_OUTREACH, true),
+      sync: flag(process.env.FEATURE_SYNC, true),
     },
 
     router: {
       origin: false,
     },
     eas: {
-      projectId: process.env.EAS_PROJECT_ID || '',
+      // Hardcoded fallback so cloud builds resolve the project even though
+      // .env (which also carries this) is gitignored and not uploaded.
+      projectId: process.env.EAS_PROJECT_ID || '9a2a8a94-9199-468a-a479-98c5b1627a54',
     },
   },
 });

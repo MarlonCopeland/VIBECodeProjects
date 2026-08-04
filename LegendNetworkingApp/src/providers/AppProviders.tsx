@@ -8,6 +8,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { ThemeProvider } from '../theme/ThemeProvider';
 import { AuthProvider } from '../features/auth/AuthContext';
 import { ContactsProvider } from '../features/contacts/ContactsContext';
+import { AppSettingsProvider } from '../features/settings/AppSettingsContext';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -15,7 +16,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
       <SafeAreaProvider>
         <ThemeProvider>
           <AuthProvider>
-            <ContactsProvider>{children}</ContactsProvider>
+            <AppSettingsProvider>
+              <ContactsProvider>{children}</ContactsProvider>
+            </AppSettingsProvider>
           </AuthProvider>
         </ThemeProvider>
       </SafeAreaProvider>

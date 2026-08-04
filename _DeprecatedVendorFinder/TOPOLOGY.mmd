@@ -1,0 +1,142 @@
+%% VendorFinderApp - Combined Features & Topology
+%% Cross-platform Expo / React Native app (iOS / Android / Web)
+%% Render: https://mermaid.live  or  mmdc -i TOPOLOGY.mmd -o TOPOLOGY.svg
+flowchart TB
+
+    %% ===================== ENTRY =====================
+    ENTRY["index.js -> App.js<br/>registerRootComponent"]
+
+    %% =============== PROVIDER / RENDER TREE ===============
+    subgraph PROV["Provider / Render Tree (App.js)"]
+        direction TB
+        SAP["SafeAreaProvider"]
+        AP["AuthProvider"]
+        VP["VendorProvider (uses useAuth)"]
+        ROOT["Root"]
+        BANNER["ImpersonationBanner<br/>(while impersonating)"]
+        NAVC["NavigationContainer"]
+        GATE{"currentUser?"}
+        SAP --> AP --> VP --> ROOTE
+        ROOT --> BANNER
+        ROOT --> NAVC --> GATE
+    end
+    ENTRY --> SAP
+
+    %% =============== NAVIGATION ===============
+    subgraph NAV["Navigation Graph"]
+        direction TB
+        subgraph AUTHSTACK["AuthStack (unauthenticated)"]
+            LOGIN["Login"] --> SIGNUP["Signup"]
+        end
+        subgraph APPSTACK["AppStack (authenticated)"]
+            MAIN["Main -> MainTabs"]
+            VDET["VendorDetail"]
+            EVP["EditVendorProfile"]
+            FOLL["Followers"]
+            MAIN --> VDET
+            MAIN --> EVP
+            MAIN --> FOLL
+        end
+        subgraph TABS["MainTabs (role-gated bottom tabs)"]
+            T_HOME["Home"]
+            T_SEARCH["Search"]
+            T_FAV["Favorites"]
+            T_ALERTS["Alerts"]
+            T_PROFILE["Profile"]
+            T_TOOLS["VendorTools (role=vendor)"]
+            T_ADMIN["Admin (role=admin)"]
+        end
+        MAIN -.contains.-> TABS
+    end
+    GATE -->|null| AUTHSTACK
+    GATE -->|present| APPSTACK
+
+    %% =============== ROLES / RBAC ===============
+    subgraph RBAC["Roles & RBAC (AuthContext.can)"]
+        direction LR
+        R_USER["user<br/>view/search/favorite,<br/>view/edit profile, alerts"]
+        R_VENDOR["vendor<br/>+ vendor-tools, edit:own-vendor,<br/>send:broadcast, manage:followers"]
+        R_ADMIN["admin<br/>+ access:admin, impersonate, list:users"]
+        R_USER --> R_VENDOR --> R_ADMIN
+    end
+    T_PROFILE -. Become a Vendor .-> R_VENDOR
+    T_TOOLS -. requires .-> R_VENDOR
+    T_ADMIN -. requires .-> R_ADMIN
+
+    %% =============== CONTEXT LAYER ===============
+    subgraph CTX["Context Layer (global state)"]
+        AUTHCTX["AuthContext<br/>session, role, realUser/actingAs"]
+        VENDCTX["VendorContext<br/>vendors, favorites, location,<br/>alert engine, withDistances()"]
+        VENDCTX --> AUTHCTX
+    end
+
+    %% =============== SERVICE LAYER ===============
+    subgraph SVC["Service Layer (platform wrappers)"]
+        AUTHSVC["authService<br/>username/pw + OAuth stubs, hashing"]
+        LOCSVC["locationService<br/>expo-location + Haversine"]
+        NOTSVC["notificationService<br/>local/web notif + alert engine"]
+    end
+
+    %% =============== BACKEND FACADE ===============
+    subgraph BE["Backend Facade (services/backend)"]
+        IDX["index.js<br/>impl selector (single swap point)"]
+        LOCAL["localBackend.js<br/>AsyncStorage (DEFAULT)"]
+        FIRE["firebaseBackend.js<br/>stub + reference impl"]
+        IDX -->|BACKEND='local'| LOCAL
+        IDX -->|BACKEND='firebase'| FIRE
+    end
+
+    STORE[("AsyncStorage")]
+    CLOUD[("Firestore / FCM<br/>(not wired)")]
+    LOCAL --> STORE
+    FIRE -.-> CLOUD
+
+    %% =============== UI -> CONTEXT WIRING ===============
+    TABS --> AUTHCTX
+    TABS --> VENDCTX
+    APPSTACK --> AUTHCTX
+    APPSTACK --> VENDCTX
+    BANNER --> AUTHCTX
+
+    %% =============== CONTEXT/SERVICE -> FACADE ===============
+    AUTHCTX --> AUTHSVC
+    VENDCTX --> LOCSVC
+    VENDCTX --> NOTSVC
+    AUTHSVC --> IDX
+    NOTSVC --> IDX
+    AUTHCTX --> IDX
+    VENDCTX --> IDX
+    APPSTACK -. one-off reads/writes .-> IDX
+
+    %% =============== ALERT ENGINE ===============
+    subgraph ALERT["Alert Engine (every 60s)"]
+        POLL["evaluateAndAlert()"]
+        C1["just became open -> '<name> is open!'"]
+        C2["open AND within 2km -> '<name> is nearby'"]
+        HIST["append vf.alertHistory<br/>dedupe vendor:condition:date"]
+        POLL --> C1 --> HIST
+        POLL --> C2 --> HIST
+    end
+    NOTSVC --> POLL
+    LOCSVC --> POLL
+    T_ALERTS -. reads .-> HIST
+
+    %% =============== DATA MODEL =====================
+    subgraph DATA["Data Model"]
+        direction LR
+        D_USER["USER<br/>id, username, email, passwordHash,<br/>role(admin|vendor|user), provider,<br/>interests[], vendorId"]
+        D_VENDOR["VENDOR<br/>id, name, type, tags[], description,<br/>ownerId, blockedUserIds[],<br/>schedule[], currentLocation, isOpen, rating"]
+        D_BCAST["BROADCAST<br/>id, vendorId, message, at"]
+        D_FAV["FAVORITE<br/>vf.favorites.&lt;userId&gt; -> vendorId[]"]
+        D_USER -->|owns vendorId| D_VENDOR
+        D_VENDOR -->|sends| D_BCAST
+        D_USER -->|follows| D_FAV
+        D_FAV --> D_VENDOR
+    end
+    LOCAL -.persists.-> DATA
+
+    %% ===================== STYLES =====================
+    classDef store fill:#222,color:#fff,stroke:#000;
+    classDef role fill:#1d3b53,color:#fff,stroke:#0a1b2a;
+    class STORE,CLOUD store;
+    class R_USER,R_VENDOR,R_ADMIN role;

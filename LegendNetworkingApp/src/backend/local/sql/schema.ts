@@ -114,13 +114,17 @@ export async function migrate(driver: SqlDriver): Promise<void> {
   migratedDrivers.add(driver);
 }
 
-export async function hasSeeded(driver: SqlDriver): Promise<boolean> {
+export async function getMeta(driver: SqlDriver, key: string): Promise<string | null> {
   const row = await driver.getFirstAsync<{ value: string }>(
-    `SELECT value FROM meta WHERE key = 'seeded'`,
+    `SELECT value FROM meta WHERE key = ?`,
+    [key],
   );
-  return row?.value === 'true';
+  return row?.value ?? null;
 }
 
-export async function markSeeded(driver: SqlDriver): Promise<void> {
-  await driver.runAsync(`INSERT OR REPLACE INTO meta (key, value) VALUES ('seeded', 'true')`);
+export async function setMeta(driver: SqlDriver, key: string, value: string): Promise<void> {
+  await driver.runAsync(
+    `INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)`,
+    [key, value],
+  );
 }

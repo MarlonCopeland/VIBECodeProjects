@@ -18,6 +18,7 @@ interface RawExtra {
   webBaseUrl?: string;
   googleAuthEnabled?: boolean;
   appleAuthEnabled?: boolean;
+  paletteStoreEnabled?: boolean;
   stripePublishableKey?: string;
   stripePriceTier1?: string;
   stripePriceTier2?: string;
@@ -44,9 +45,20 @@ export const APP_SCHEME = extra.scheme ?? 'unjadeddigital';
 /** Base URL of the deployed web build (used for email redirect links). */
 export const WEB_BASE_URL = extra.webBaseUrl ?? '';
 
-/** OAuth provider availability. */
-export const GOOGLE_AUTH_ENABLED = extra.googleAuthEnabled ?? false;
-export const APPLE_AUTH_ENABLED = extra.appleAuthEnabled ?? false;
+/**
+ * OAuth provider availability. Real OAuth only exists on the Supabase backend;
+ * the local/demo backend would render fake "Continue with …" buttons — a
+ * broken feature to an App Store reviewer — so social auth is forced off there
+ * regardless of the env flags.
+ */
+export const GOOGLE_AUTH_ENABLED = BACKEND === 'supabase' && (extra.googleAuthEnabled ?? false);
+export const APPLE_AUTH_ENABLED = BACKEND === 'supabase' && (extra.appleAuthEnabled ?? false);
+
+/**
+ * Premium palette store UI ($ prices + Unlock buttons). Off for external/
+ * release builds until real StoreKit IAP exists (Apple Guideline 3.1.1).
+ */
+export const PALETTE_STORE_ENABLED = extra.paletteStoreEnabled ?? false;
 
 /** Stripe public config. */
 export const STRIPE_PUBLISHABLE_KEY = extra.stripePublishableKey ?? '';

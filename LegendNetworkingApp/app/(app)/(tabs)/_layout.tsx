@@ -45,8 +45,8 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="profile"
         options={{
-          title: 'Profile',
-          tabBarIcon: icon('person-outline'),
+          title: 'Me',
+          tabBarIcon: icon('person-circle-outline'),
           href: isFeatureEnabled('profile') ? undefined : null,
         }}
       />

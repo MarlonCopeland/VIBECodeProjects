@@ -21,20 +21,23 @@ import {
   personalize,
 } from '../../../src/features/outreach/outreachService';
 import { notify } from '../../../src/lib/notify';
+import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
+import { TemplateButton } from '../../../src/features/outreach/TemplateButton';
 
 export default function EmailBlastScreen() {
   const { circleId } = useLocalSearchParams<{ circleId?: string }>();
   const router = useRouter();
   const { spacing } = useTheme();
   const { circles, contacts, gradeFor, logInteraction } = useContacts();
+  const { applyMeExclusion } = useAppSettings();
 
   const circle = circles.find((c) => c.id === circleId);
   const targets = useMemo(() => {
     const members = circle
       ? matchCircle(circle, contacts, gradeFor).map((m) => m.contact)
       : contacts;
-    return emailTargets(members);
-  }, [circle, contacts, gradeFor]);
+    return emailTargets(applyMeExclusion(members));
+  }, [circle, contacts, gradeFor, applyMeExclusion]);
 
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
@@ -101,6 +104,13 @@ export default function EmailBlastScreen() {
         </View>
       </View>
 
+      <TemplateButton
+        channel="email"
+        onPick={(t) => {
+          if (t.subject !== undefined) setSubject(t.subject);
+          setBody(t.body);
+        }}
+      />
       <TextField label="Subject" value={subject} onChangeText={setSubject} />
       <TextField
         label="Body"

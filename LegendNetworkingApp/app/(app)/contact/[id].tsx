@@ -12,10 +12,12 @@ import { Text } from '../../../src/components/Text';
 import { Card } from '../../../src/components/Card';
 import { Button } from '../../../src/components/Button';
 import { TextField } from '../../../src/components/TextField';
+import { OptionSheet, type OptionSheetOption } from '../../../src/components/OptionSheet';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useContacts } from '../../../src/features/contacts/ContactsContext';
+import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
-import { pointsToNextTier, INTERACTION_WEIGHTS } from '../../../src/features/contacts/grading';
+import { pointsToNextTier } from '../../../src/features/contacts/grading';
 import type { InteractionKind } from '../../../src/features/contacts/types';
 import { notify, confirm } from '../../../src/lib/notify';
 
@@ -33,9 +35,12 @@ export default function ContactDetailScreen() {
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
   const { contactById, gradeFor, interactionsFor, logInteraction, deleteContact } = useContacts();
+  const { gradingConfig } = useAppSettings();
+  const weights = gradingConfig.weights;
   const [logKind, setLogKind] = useState<InteractionKind>('note');
   const [logNote, setLogNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [chooser, setChooser] = useState<'call' | 'text' | 'email' | null>(null);
 
   const contact = id ? contactById(id) : undefined;
   if (!contact) {
@@ -49,9 +54,7 @@ export default function ContactDetailScreen() {
   const grade = gradeFor(contact.id);
   const history = interactionsFor(contact.id);
   const name = `${contact.firstName} ${contact.lastName}`.trim();
-  const next = pointsToNextTier(grade.score);
-  const phone = contact.phones[0]?.number;
-  const email = contact.emails[0]?.address;
+  const next = pointsToNextTier(grade.score, gradingConfig.tiers);
 
   const act = async (kind: InteractionKind, open?: () => Promise<unknown>) => {
     try {
@@ -62,16 +65,41 @@ export default function ContactDetailScreen() {
     }
   };
 
-  const quick = (
-    kind: InteractionKind,
-    enabled: boolean,
-    open?: () => Promise<unknown>,
-  ) => (
+  // Channel actions honor EVERY number/email on the contact: one entry acts
+  // immediately, several open a chooser sheet.
+  const URL_PREFIX = { call: 'tel', text: 'sms', email: 'mailto' } as const;
+  type ChannelKind = keyof typeof URL_PREFIX;
+
+  const channelEntries = (kind: ChannelKind): { label: string; value: string }[] =>
+    kind === 'email'
+      ? contact.emails.map((e) => ({ label: e.label, value: e.address }))
+      : contact.phones.map((p) => ({ label: p.label, value: p.number }));
+
+  const openChannel = (kind: ChannelKind, value: string) =>
+    void act(kind, () => Linking.openURL(`${URL_PREFIX[kind]}:${encodeURIComponent(value)}`));
+
+  const runChannel = (kind: ChannelKind) => {
+    const entries = channelEntries(kind);
+    if (entries.length === 1) openChannel(kind, entries[0]!.value);
+    else if (entries.length > 1) setChooser(kind);
+  };
+
+  const chooserOptions: OptionSheetOption[] = chooser
+    ? channelEntries(chooser).map((e, i) => ({
+        key: `${e.value}-${i}`,
+        label: e.label || 'other',
+        detail: e.value,
+        icon: KIND_META[chooser].icon,
+        onPress: () => openChannel(chooser, e.value),
+      }))
+    : [];
+
+  const quickButton = (kind: InteractionKind, enabled: boolean, onPress: () => void) => (
     <Pressable
       key={kind}
       accessibilityRole="button"
       disabled={!enabled}
-      onPress={() => void act(kind, open)}
+      onPress={onPress}
       style={({ pressed }) => ({
         flex: 1,
         alignItems: 'center',
@@ -88,6 +116,12 @@ export default function ContactDetailScreen() {
       <Text variant="caption">{KIND_META[kind].label}</Text>
     </Pressable>
   );
+
+  const quick = (kind: InteractionKind, enabled: boolean, open?: () => Promise<unknown>) =>
+    quickButton(kind, enabled, () => void act(kind, open));
+
+  const quickChannel = (kind: ChannelKind, enabled: boolean) =>
+    quickButton(kind, enabled, () => runChannel(kind));
 
   return (
     <Screen scroll>
@@ -109,7 +143,7 @@ export default function ContactDetailScreen() {
       <GradeBadge grade={grade} variant="hero" />
       {next ? (
         <Text variant="caption" tone="muted" style={{ marginTop: spacing.xs }}>
-          {`${next.points} points to ${next.next.label} — a call is +${INTERACTION_WEIGHTS.call}, a visit +${INTERACTION_WEIGHTS.visit}.`}
+          {`${next.points} points to ${next.next.label} — a call is +${weights.call}, a visit +${weights.visit}.`}
         </Text>
       ) : null}
 
@@ -120,13 +154,21 @@ export default function ContactDetailScreen() {
         <Text tone="muted">{[contact.title, contact.company].filter(Boolean).join(' · ')}</Text>
       ) : null}
 
-      {/* Quick actions — each opens the channel AND logs the touch. */}
+      {/* Quick actions — each opens the channel AND logs the touch. With
+          multiple numbers/emails a chooser sheet appears first. */}
       <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg }}>
-        {quick('call', !!phone, () => Linking.openURL(`tel:${encodeURIComponent(phone ?? '')}`))}
-        {quick('text', !!phone, () => Linking.openURL(`sms:${encodeURIComponent(phone ?? '')}`))}
-        {quick('email', !!email, () => Linking.openURL(`mailto:${encodeURIComponent(email ?? '')}`))}
+        {quickChannel('call', contact.phones.length > 0)}
+        {quickChannel('text', contact.phones.length > 0)}
+        {quickChannel('email', contact.emails.length > 0)}
         {quick('visit', true)}
       </View>
+
+      <OptionSheet
+        visible={chooser !== null}
+        title={chooser ? `${KIND_META[chooser].label} ${contact.firstName || name}` : undefined}
+        options={chooserOptions}
+        onClose={() => setChooser(null)}
+      />
 
       {contact.whereMet ? (
         <Card style={{ marginTop: spacing.lg }}>
@@ -192,7 +234,7 @@ export default function ContactDetailScreen() {
               }}
             >
               <Text variant="caption" tone={logKind === kind ? 'inverse' : 'default'}>
-                {`${KIND_META[kind].label} +${INTERACTION_WEIGHTS[kind]}`}
+                {`${KIND_META[kind].label} +${weights[kind]}`}
               </Text>
             </Pressable>
           ))}
@@ -253,9 +295,15 @@ export default function ContactDetailScreen() {
         variant="danger"
         style={{ marginTop: spacing.xxl }}
         onPress={() =>
-          confirm('Delete contact?', `${name} and their interaction history will be removed.`, () => {
-            void deleteContact(contact.id).then(() => router.back());
-          })
+          confirm(
+            'Delete contact?',
+            `${name} and their interaction history will be removed from Legend.\n\n` +
+              `Legend never touches other sources: if ${contact.firstName || 'they'} is also in your phone's contacts ` +
+              `or another synced source you import from, remove them there too or they may come back on the next import.`,
+            () => {
+              void deleteContact(contact.id).then(() => router.back());
+            },
+          )
         }
       />
     </Screen>

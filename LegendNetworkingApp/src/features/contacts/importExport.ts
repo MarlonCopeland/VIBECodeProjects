@@ -9,8 +9,26 @@
 import { Platform } from 'react-native';
 import * as Crypto from 'expo-crypto';
 import { parseCsv, serializeCsv } from '../../lib/csv';
-import type { Contact, ContactInput, Interaction, Premise, PremiseKind } from './types';
-import { PREMISE_KINDS } from './types';
+import type { Contact, ContactInput, Interaction, Premise } from './types';
+import {
+  csvRowsToContacts as mapRowsToContacts,
+  guessMapping,
+  type CsvImportResult,
+  type CsvMapping,
+} from './csvMapping';
+
+// Mapping engine (pure, Node-testable) lives in ./csvMapping — re-exported
+// here so screens have one import site for all CSV import/export concerns.
+export {
+  CSV_FIELD_DEFS,
+  guessMapping,
+  type CsvField,
+  type CsvFieldDef,
+  type CsvImportResult,
+  type CsvMapping,
+  type CsvMultiField,
+  type CsvSingleField,
+} from './csvMapping';
 
 export const CSV_HEADER = [
   'first_name',
@@ -74,97 +92,34 @@ export function interactionsToCsv(contacts: Contact[], interactions: Interaction
 }
 
 // ---------------------------------------------------------------------------
-// CSV -> ContactInput
+// CSV -> ContactInput (mapping-driven; engine in ./csvMapping)
 // ---------------------------------------------------------------------------
 
-function pairsIn(field: string): { label: string; value: string }[] {
-  return field
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const idx = entry.indexOf(':');
-      if (idx === -1) return { label: 'other', value: entry };
-      return { label: entry.slice(0, idx) || 'other', value: entry.slice(idx + 1) };
-    })
-    .filter((p) => p.value.trim() !== '');
+/** Parse a CSV into its header + data rows (null when the file is empty). */
+export function parseCsvTable(text: string): { header: string[]; rows: string[][] } | null {
+  const all = parseCsv(text);
+  if (all.length === 0) return null;
+  return { header: all[0]!.map((h) => h.trim()), rows: all.slice(1) };
 }
 
-function premisesIn(field: string): Premise[] {
-  return field
-    .split(';')
-    .map((s) => s.trim())
-    .filter(Boolean)
-    .map((entry) => {
-      const parts = entry.split(':');
-      const rawKind = parts[0]?.trim().toLowerCase() ?? '';
-      const kind: PremiseKind = (PREMISE_KINDS as string[]).includes(rawKind)
-        ? (rawKind as PremiseKind)
-        : 'topic';
-      const tagsPart = (parts.length >= 3 ? parts[parts.length - 1] : '') ?? '';
-      const label = (parts.length >= 3 ? parts.slice(1, -1).join(':') : parts.slice(1).join(':')).trim();
-      const tags = tagsPart
-        .split('|')
-        .map((t) => t.trim().toLowerCase())
-        .filter(Boolean);
-      return { id: Crypto.randomUUID(), kind, label, tags };
-    })
-    .filter((p) => p.label !== '');
+/** Mapping-driven conversion with the app's real UUID generator bound in. */
+export function csvRowsToContacts(
+  header: string[],
+  rows: string[][],
+  mapping: CsvMapping,
+): CsvImportResult {
+  return mapRowsToContacts(header, rows, mapping, () => Crypto.randomUUID());
 }
 
-export interface CsvImportResult {
-  inputs: ContactInput[];
-  errors: string[];
-}
-
+/** One-shot conversion using auto-guessed mappings (Legend's own format). */
 export function csvToContacts(text: string): CsvImportResult {
-  const rows = parseCsv(text);
-  const errors: string[] = [];
-  if (rows.length === 0) return { inputs: [], errors: ['File is empty.'] };
-
-  const header = rows[0]!.map((h) => h.trim().toLowerCase());
-  const col = (name: string) => header.indexOf(name);
-  if (col('first_name') === -1 && col('last_name') === -1) {
+  const table = parseCsvTable(text);
+  if (!table) return { inputs: [], errors: ['File is empty.'] };
+  const mapping = guessMapping(table.header);
+  if (mapping.first_name === -1 && mapping.last_name === -1) {
     return { inputs: [], errors: ['Missing header row (expected at least first_name/last_name).'] };
   }
-
-  const get = (row: string[], name: string) => {
-    const i = col(name);
-    return i === -1 ? '' : (row[i] ?? '').trim();
-  };
-
-  const inputs: ContactInput[] = [];
-  rows.slice(1).forEach((row, n) => {
-    const firstName = get(row, 'first_name');
-    const lastName = get(row, 'last_name');
-    if (!firstName && !lastName) {
-      errors.push(`Row ${n + 2}: no name — skipped.`);
-      return;
-    }
-    const place = get(row, 'where_met_place');
-    inputs.push({
-      firstName,
-      lastName,
-      nickname: get(row, 'nickname') || undefined,
-      company: get(row, 'company') || undefined,
-      title: get(row, 'title') || undefined,
-      phones: pairsIn(get(row, 'phones')).map((p) => ({ label: p.label, number: p.value })),
-      emails: pairsIn(get(row, 'emails')).map((e) => ({ label: e.label, address: e.value })),
-      avatarUrl: null,
-      whereMet: place
-        ? {
-            placeName: place,
-            city: get(row, 'where_met_city') || undefined,
-            note: get(row, 'where_met_note') || undefined,
-          }
-        : null,
-      premises: premisesIn(get(row, 'premises')),
-      notes: get(row, 'notes') || undefined,
-      favorite: get(row, 'favorite').toLowerCase() === 'true',
-      source: 'csv',
-    });
-  });
-  return { inputs, errors };
+  return csvRowsToContacts(table.header, table.rows, mapping);
 }
 
 // ---------------------------------------------------------------------------

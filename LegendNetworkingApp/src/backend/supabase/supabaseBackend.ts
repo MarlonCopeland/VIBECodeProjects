@@ -1,7 +1,13 @@
 // src/backend/supabase/supabaseBackend.ts
-// Supabase implementation of the Backend contract.
+// Supabase implementation of the Backend contract — ACCOUNTS ONLY.
 //
-// Data model expectation (see supabase/migrations/0001_init.sql):
+// Zero-knowledge boundary (migrations/0005_zero_knowledge.sql): Supabase holds
+// user accounts, usage metrics, and sync entitlements. It NEVER stores the
+// contact graph — contacts/relationships live exclusively in the on-device
+// SQLite vault, so `contacts` below is the same local implementation the demo
+// backend uses. Sync (when it ships) relays only client-side-encrypted blobs.
+//
+// Data model expectation (see supabase/migrations/):
 //   - auth.users            : managed by Supabase Auth
 //   - public.profiles       : 1:1 with auth.users (id FK), holds app profile
 //   - public.push_tokens    : (user_id, token) unique
@@ -12,7 +18,7 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session as SbSession, User as SbUser } from '@supabase/supabase-js';
 import { getSupabase } from './client';
-import { supabaseContacts } from './supabaseContacts';
+import { localContacts } from '../local/localContacts';
 import type {
   AppUser,
   AuthApi,
@@ -264,5 +270,6 @@ export const supabaseBackend: Backend = {
   auth,
   profile,
   notifications,
-  contacts: supabaseContacts,
+  // The device vault: contacts never leave the phone in plaintext.
+  contacts: localContacts,
 };

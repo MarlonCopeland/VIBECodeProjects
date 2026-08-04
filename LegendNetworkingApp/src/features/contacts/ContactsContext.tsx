@@ -14,6 +14,7 @@ import React, {
 } from 'react';
 import { backend } from '../../backend';
 import { useAuth } from '../auth/AuthContext';
+import { useAppSettings } from '../settings/AppSettingsContext';
 import { computeGrade, type Grade } from './grading';
 import { dedupeAgainst } from './importExport';
 import type {
@@ -68,6 +69,7 @@ const EMPTY_GRADE_INTERACTIONS: Interaction[] = [];
 
 export function ContactsProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const { gradingConfig } = useAppSettings();
   const ownerId = user?.id ?? null;
 
   const [loading, setLoading] = useState(true);
@@ -116,10 +118,13 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
     const now = Date.now();
     const map = new Map<string, Grade>();
     for (const c of contacts) {
-      map.set(c.id, computeGrade(interactionsByContact.get(c.id) ?? EMPTY_GRADE_INTERACTIONS, now));
+      map.set(
+        c.id,
+        computeGrade(interactionsByContact.get(c.id) ?? EMPTY_GRADE_INTERACTIONS, now, gradingConfig),
+      );
     }
     return map;
-  }, [contacts, interactionsByContact]);
+  }, [contacts, interactionsByContact, gradingConfig]);
 
   const graded = useMemo<GradedContact[]>(
     () => contacts.map((contact) => ({ contact, grade: grades.get(contact.id)! })),
@@ -139,7 +144,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       circles,
       graded,
       gradeFor: (contactId) =>
-        grades.get(contactId) ?? computeGrade(EMPTY_GRADE_INTERACTIONS),
+        grades.get(contactId) ?? computeGrade(EMPTY_GRADE_INTERACTIONS, Date.now(), gradingConfig),
       contactById: (id) => contacts.find((c) => c.id === id),
       interactionsFor: (contactId) =>
         [...(interactionsByContact.get(contactId) ?? [])].sort(
@@ -199,6 +204,7 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       graded,
       grades,
       interactionsByContact,
+      gradingConfig,
       refresh,
       requireOwner,
     ],

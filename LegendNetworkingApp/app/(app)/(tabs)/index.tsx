@@ -4,18 +4,19 @@
 // premise/tags, a grade dot on every row, and import/export entry points.
 
 import React, { useMemo, useRef, useState } from 'react';
-import { Pressable, SectionList, View } from 'react-native';
+import { Linking, Pressable, SectionList, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../../src/components/Screen';
 import { Text } from '../../../src/components/Text';
 import { TextField } from '../../../src/components/TextField';
+import { OptionSheet } from '../../../src/components/OptionSheet';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useContacts, type GradedContact } from '../../../src/features/contacts/ContactsContext';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
-import { describeFreshness } from '../../../src/features/contacts/grading';
-import { contactsToCsv, interactionsToCsv, shareCsv } from '../../../src/features/contacts/importExport';
-import { notify } from '../../../src/lib/notify';
+import { describeFreshness, type TierId } from '../../../src/features/contacts/grading';
+import { useAppSettings, type ContactsDefaultView } from '../../../src/features/settings/AppSettingsContext';
+import type { Contact } from '../../../src/features/contacts/types';
 
 const ALPHABET = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', '#'];
 
@@ -34,16 +35,64 @@ function sectionLetter(gc: GradedContact): string {
   return ch >= 'A' && ch <= 'Z' ? ch : '#';
 }
 
+type SortMode = 'name' | 'grade' | 'stalest' | 'newest';
+
+const SORT_OPTIONS: { id: SortMode; label: string }[] = [
+  { id: 'name', label: 'Name' },
+  { id: 'grade', label: 'Grade' },
+  { id: 'stalest', label: 'Stalest' },
+  { id: 'newest', label: 'Newest' },
+];
+
+/** Flat comparator for the non-alphabetical sort modes. */
+function compareBy(mode: SortMode, a: GradedContact, b: GradedContact): number {
+  switch (mode) {
+    case 'grade':
+      return b.grade.score - a.grade.score || sortName(a).localeCompare(sortName(b));
+    case 'stalest': {
+      // Never-contacted first (∞ stale), then oldest touch → newest.
+      const fa = a.grade.freshnessDays ?? Number.POSITIVE_INFINITY;
+      const fb = b.grade.freshnessDays ?? Number.POSITIVE_INFINITY;
+      return fb - fa || sortName(a).localeCompare(sortName(b));
+    }
+    case 'newest':
+      // createdAt is an HLC stamp (local backend) or ISO (supabase) — both
+      // sort correctly as plain strings, so no Date.parse (HLC would NaN).
+      return b.contact.createdAt.localeCompare(a.contact.createdAt);
+    default:
+      return sortName(a).localeCompare(sortName(b));
+  }
+}
+
 export default function ContactsScreen() {
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
-  const { graded, contacts, interactions, loading } = useContacts();
+  const { graded, loading, logInteraction } = useContacts();
+  const { meContactId, contactsDefaultView, gradingConfig } = useAppSettings();
+  // null = follow the setting; a value = the user tapped a segment this session.
+  const [viewOverride, setViewOverride] = useState<ContactsDefaultView | null>(null);
+  const view = viewOverride ?? contactsDefaultView;
   const [query, setQuery] = useState('');
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [panelOpen, setPanelOpen] = useState(false);
+  const [sortBy, setSortBy] = useState<SortMode>('name');
+  const [tierFilter, setTierFilter] = useState<ReadonlySet<TierId>>(new Set());
+  const [favoritesOnly, setFavoritesOnly] = useState(false);
   const listRef = useRef<SectionList<GradedContact, Section>>(null);
+
+  const filtersActive = sortBy !== 'name' || tierFilter.size > 0 || favoritesOnly;
+
+  const toggleTier = (id: TierId) =>
+    setTierFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const sections = useMemo<Section[]>(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
+    let filtered = q
       ? graded.filter(({ contact: c }) => {
           const hay = [
             c.firstName,
@@ -59,6 +108,27 @@ export default function ContactsScreen() {
           return hay.includes(q);
         })
       : graded;
+    if (tierFilter.size > 0) filtered = filtered.filter((gc) => tierFilter.has(gc.grade.tier.id));
+    if (favoritesOnly) filtered = filtered.filter((gc) => gc.contact.favorite);
+
+    // Recent view: most recently touched first, never-contacted last.
+    if (view === 'recent') {
+      return [
+        {
+          title: '',
+          data: [...filtered].sort((a, b) => {
+            const fa = a.grade.freshnessDays ?? Number.POSITIVE_INFINITY;
+            const fb = b.grade.freshnessDays ?? Number.POSITIVE_INFINITY;
+            return fa - fb || b.grade.score - a.grade.score;
+          }),
+        },
+      ];
+    }
+
+    // Non-alphabetical sorts render as one flat, unlabeled section.
+    if (sortBy !== 'name') {
+      return [{ title: '', data: [...filtered].sort((a, b) => compareBy(sortBy, a, b)) }];
+    }
 
     const buckets = new Map<string, GradedContact[]>();
     for (const gc of filtered) {
@@ -76,7 +146,19 @@ export default function ContactsScreen() {
           x.contact.firstName.localeCompare(y.contact.firstName),
         ),
       }));
-  }, [graded, query]);
+  }, [graded, query, sortBy, tierFilter, favoritesOnly, view]);
+
+  // Quick channel action for a Recent row: opens the channel with the
+  // contact's first number/email and logs the interaction (the contact
+  // detail screen offers the full multi-number chooser).
+  const rowAct = (c: Contact, kind: 'call' | 'text' | 'email') => {
+    const address = kind === 'email' ? c.emails[0]?.address : c.phones[0]?.number;
+    if (!address) return;
+    const scheme = kind === 'call' ? 'tel' : kind === 'text' ? 'sms' : 'mailto';
+    void Linking.openURL(`${scheme}:${encodeURIComponent(address)}`)
+      .then(() => logInteraction({ contactId: c.id, kind }))
+      .catch(() => undefined);
+  };
 
   const jumpTo = (letter: string) => {
     const idx = sections.findIndex((s) => s.title === letter);
@@ -89,55 +171,198 @@ export default function ContactsScreen() {
     });
   };
 
-  const exportCsv = async () => {
-    try {
-      await shareCsv('contacts.csv', contactsToCsv(contacts));
-      await shareCsv('interactions.csv', interactionsToCsv(contacts, interactions));
-      notify('Export complete', 'contacts.csv and interactions.csv were shared.');
-    } catch (e) {
-      notify('Export failed', e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const headerAction = (icon: keyof typeof Ionicons.glyphMap, label: string, onPress: () => void) => (
-    <Pressable
-      key={label}
-      accessibilityRole="button"
-      accessibilityLabel={label}
-      onPress={onPress}
-      style={({ pressed }) => ({
-        alignItems: 'center',
-        gap: 2,
-        paddingVertical: spacing.xs,
-        paddingHorizontal: spacing.sm,
-        borderRadius: radius.sm,
-        backgroundColor: pressed ? colors.surfaceAlt : 'transparent',
-      })}
-    >
-      <Ionicons name={icon} size={20} color={colors.primary} />
-      <Text variant="caption" tone="muted">{label}</Text>
-    </Pressable>
-  );
-
   return (
     <Screen padded={false} edges={['top']}>
+      <OptionSheet
+        visible={addMenuOpen}
+        title="Add contacts"
+        onClose={() => setAddMenuOpen(false)}
+        options={[
+          {
+            key: 'new',
+            label: 'New contact',
+            icon: 'person-add-outline',
+            onPress: () => router.push('/contact/edit'),
+          },
+          {
+            key: 'device',
+            label: 'Import from phone',
+            detail: 'Pull contacts from this device’s address book',
+            icon: 'phone-portrait-outline',
+            onPress: () => router.push('/contacts-import?mode=device'),
+          },
+          {
+            key: 'csv',
+            label: 'Import from CSV',
+            detail: 'Pick a .csv file in Legend’s format',
+            icon: 'download-outline',
+            onPress: () => router.push('/contacts-import?mode=csv'),
+          },
+        ]}
+      />
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Text variant="title" weight="bold">Contacts</Text>
-          <View style={{ flexDirection: 'row' }}>
-            {headerAction('person-add-outline', 'Add', () => router.push('/contact/edit'))}
-            {headerAction('phone-portrait-outline', 'Phone', () => router.push('/contacts-import?mode=device'))}
-            {headerAction('download-outline', 'CSV in', () => router.push('/contacts-import?mode=csv'))}
-            {headerAction('share-outline', 'CSV out', () => void exportCsv())}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+            <Text variant="title" weight="bold">Contacts</Text>
+            <View
+              style={{
+                flexDirection: 'row',
+                borderRadius: radius.pill,
+                borderWidth: 1,
+                borderColor: colors.border,
+                overflow: 'hidden',
+              }}
+            >
+              {(['all', 'recent'] as const).map((v) => (
+                <Pressable
+                  key={v}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: view === v }}
+                  onPress={() => setViewOverride(v)}
+                  style={{
+                    paddingVertical: 4,
+                    paddingHorizontal: spacing.md,
+                    backgroundColor: view === v ? colors.primary : 'transparent',
+                  }}
+                >
+                  <Text variant="caption" tone={view === v ? 'inverse' : 'muted'} weight="semibold">
+                    {v === 'all' ? 'All' : 'Recent'}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Add or import contacts"
+            onPress={() => setAddMenuOpen(true)}
+            style={({ pressed }) => ({
+              width: 36,
+              height: 36,
+              borderRadius: radius.pill,
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: pressed ? colors.primaryPressed : colors.primary,
+            })}
+          >
+            <Ionicons name="add" size={24} color={colors.onPrimary} />
+          </Pressable>
         </View>
-        <TextField
-          placeholder="Search name, company, premise, tag…"
-          value={query}
-          onChangeText={setQuery}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm }}>
+          <View style={{ flex: 1 }}>
+            <TextField
+              placeholder="Search name, company, premise, tag…"
+              value={query}
+              onChangeText={setQuery}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sort and filter"
+            accessibilityState={{ selected: panelOpen || filtersActive }}
+            onPress={() => setPanelOpen((v) => !v)}
+            style={({ pressed }) => ({
+              width: 40,
+              height: 40,
+              borderRadius: radius.md,
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderWidth: 1,
+              borderColor: panelOpen || filtersActive ? colors.primary : colors.border,
+              backgroundColor: pressed
+                ? colors.surfaceAlt
+                : filtersActive
+                  ? colors.surfaceAlt
+                  : colors.surface,
+            })}
+          >
+            <Ionicons
+              name={filtersActive ? 'funnel' : 'funnel-outline'}
+              size={18}
+              color={panelOpen || filtersActive ? colors.primary : colors.textMuted}
+            />
+          </Pressable>
+        </View>
+
+        {panelOpen ? (
+          <View style={{ paddingTop: spacing.sm, gap: spacing.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+              <Text variant="caption" tone="muted">Sort</Text>
+              {SORT_OPTIONS.map((opt) => {
+                const active = sortBy === opt.id;
+                return (
+                  <Pressable
+                    key={opt.id}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected: active }}
+                    onPress={() => setSortBy(opt.id)}
+                    style={{
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: active ? colors.primary : colors.border,
+                      backgroundColor: active ? colors.primary : 'transparent',
+                      paddingVertical: 4,
+                      paddingHorizontal: spacing.md,
+                    }}
+                  >
+                    <Text variant="caption" tone={active ? 'inverse' : 'default'}>{opt.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, flexWrap: 'wrap' }}>
+              <Text variant="caption" tone="muted">Show</Text>
+              {gradingConfig.tiers.map((tier) => {
+                const active = tierFilter.has(tier.id);
+                return (
+                  <Pressable
+                    key={tier.id}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${tier.label} tier`}
+                    accessibilityState={{ selected: active }}
+                    onPress={() => toggleTier(tier.id)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 5,
+                      borderRadius: radius.pill,
+                      borderWidth: 1,
+                      borderColor: active ? tier.color : colors.border,
+                      backgroundColor: active ? `${tier.color}22` : 'transparent',
+                      paddingVertical: 4,
+                      paddingHorizontal: spacing.md,
+                    }}
+                  >
+                    <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: tier.color }} />
+                    <Text variant="caption">{tier.label}</Text>
+                  </Pressable>
+                );
+              })}
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Favorites only"
+                accessibilityState={{ selected: favoritesOnly }}
+                onPress={() => setFavoritesOnly((v) => !v)}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: 5,
+                  borderRadius: radius.pill,
+                  borderWidth: 1,
+                  borderColor: favoritesOnly ? colors.primary : colors.border,
+                  backgroundColor: favoritesOnly ? colors.primary : 'transparent',
+                  paddingVertical: 4,
+                  paddingHorizontal: spacing.md,
+                }}
+              >
+                <Ionicons name="star" size={10} color={favoritesOnly ? colors.onPrimary : colors.textMuted} />
+                <Text variant="caption" tone={favoritesOnly ? 'inverse' : 'default'}>Favorites</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
       </View>
 
       <View style={{ flex: 1, flexDirection: 'row' }}>
@@ -156,11 +381,13 @@ export default function ContactsScreen() {
               </Text>
             </View>
           }
-          renderSectionHeader={({ section }) => (
-            <View style={{ backgroundColor: colors.background, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs }}>
-              <Text variant="label" tone="muted" weight="semibold">{section.title}</Text>
-            </View>
-          )}
+          renderSectionHeader={({ section }) =>
+            section.title ? (
+              <View style={{ backgroundColor: colors.background, paddingHorizontal: spacing.lg, paddingVertical: spacing.xs }}>
+                <Text variant="label" tone="muted" weight="semibold">{section.title}</Text>
+              </View>
+            ) : null
+          }
           renderItem={({ item }) => {
             const c = item.contact;
             const name = `${c.firstName} ${c.lastName}`.trim() || c.nickname || 'Unnamed';
@@ -183,21 +410,74 @@ export default function ContactsScreen() {
               >
                 <GradeBadge grade={item.grade} variant="dot" />
                 <View style={{ flex: 1 }}>
-                  <Text weight="semibold">{name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                    <Text weight="semibold">{name}</Text>
+                    {c.id === meContactId ? (
+                      <View
+                        style={{
+                          borderRadius: radius.pill,
+                          backgroundColor: colors.primary,
+                          paddingHorizontal: 6,
+                          paddingVertical: 1,
+                        }}
+                      >
+                        <Text variant="caption" tone="inverse" weight="bold" style={{ fontSize: 9 }}>
+                          ME
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                   {sub ? (
                     <Text variant="caption" tone="muted" numberOfLines={1}>{sub}</Text>
                   ) : null}
                 </View>
-                <Text variant="caption" tone="muted">
-                  {describeFreshness(item.grade.freshnessDays)}
-                </Text>
+                {view === 'recent' ? (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.xs }}>
+                    <Text variant="caption" tone="muted" style={{ marginRight: spacing.xs }}>
+                      {describeFreshness(item.grade.freshnessDays)}
+                    </Text>
+                    {(
+                      [
+                        ['call', 'call-outline', c.phones.length > 0],
+                        ['text', 'chatbubble-outline', c.phones.length > 0],
+                        ['email', 'mail-outline', c.emails.length > 0],
+                      ] as const
+                    ).map(([kind, iconName, enabled]) => (
+                      <Pressable
+                        key={kind}
+                        accessibilityRole="button"
+                        accessibilityLabel={`${kind} ${name}`}
+                        disabled={!enabled}
+                        onPress={() => rowAct(c, kind)}
+                        hitSlop={4}
+                        style={({ pressed }) => ({
+                          width: 32,
+                          height: 32,
+                          borderRadius: 16,
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderWidth: 1,
+                          borderColor: colors.border,
+                          backgroundColor: pressed ? colors.surfaceAlt : colors.surface,
+                          opacity: enabled ? 1 : 0.35,
+                        })}
+                      >
+                        <Ionicons name={iconName} size={15} color={colors.primary} />
+                      </Pressable>
+                    ))}
+                  </View>
+                ) : (
+                  <Text variant="caption" tone="muted">
+                    {describeFreshness(item.grade.freshnessDays)}
+                  </Text>
+                )}
               </Pressable>
             );
           }}
         />
 
-        {/* A–Z fast-scroll rail */}
-        <View style={{ justifyContent: 'center', paddingHorizontal: 2 }}>
+        {/* A–Z fast-scroll rail (only meaningful for the alphabetical sort) */}
+        <View style={{ justifyContent: 'center', paddingHorizontal: 2, display: sortBy === 'name' && view === 'all' ? 'flex' : 'none' }}>
           {ALPHABET.map((letter) => (
             <Pressable
               key={letter}
