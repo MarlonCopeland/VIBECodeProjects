@@ -62,14 +62,20 @@ keyed by `contact_id`, which is already stable, so they get real per-item
 merge too. Giving phone/email entries their own ids is a small, contained
 follow-up (Phase 8.2) — noted here rather than silently glossed over.
 
-### 2. Change tracking — an oplog, with one entity already correct
+### 2. Change tracking — the tables ARE the oplog (built 2026-08-05)
 
-Every mutation should append to a local `changes` table (`table`, `rowId`,
-`patch`, `hlc`, `deviceId`) once the sync engine exists. Ordering across
-devices without a central clock uses a **Hybrid Logical Clock** — wall-clock
-milliseconds plus a per-device logical counter plus a device id for
-tie-breaking — so merges stay correct even when two phones' clocks are a
-few seconds apart.
+The original sketch had a separate local `changes` table appended on every
+write. The built engine (`src/features/sync/`) does something simpler that
+falls out of the schema: every syncable row already carries an HLC
+`updated_at` (bumped on EVERY change, tombstones included) and a
+`deleted_at` tombstone — so "changes since X" is just `WHERE updated_at >
+X`, and a change record is a row snapshot. No second write path, no oplog
+table to keep consistent. Ordering across devices without a central clock
+uses a **Hybrid Logical Clock** — wall-clock milliseconds plus a per-device
+logical counter plus a device id for tie-breaking — so merges stay correct
+even when two phones' clocks are a few seconds apart; pulling also feeds
+observed stamps back into the local clock (`observeHlc`, the HLC receive
+rule) so local writes always order after everything already seen.
 
 `Interaction` is already a pure append-only log — grades are computed from
 it, never stored, and nothing ever mutates an existing interaction. That
@@ -78,12 +84,23 @@ just union by id. That's the easy 80% of the sync problem, and it's already
 built correctly. Only `contacts` and `circles` are mutable records that
 need real merge logic.
 
-### 3. Sync engine — push/pull through Supabase (not yet built)
+### 3. Sync engine — push/pull through Supabase (built 2026-08-05)
 
-Not part of this increment. Planned shape: a `changes` table in Postgres,
-RLS-scoped like everything else, as the shared log. Push unsynced local
-changes when online; pull changes since the last-seen cursor; use Supabase
-Realtime for live push between devices that are online at the same time.
+`syncEngine.ts`: each cycle PULLs relay rows after a server-id cursor
+(skipping this device's own), decrypts, applies snapshots in one
+transaction, then PUSHes local rows newer than an HLC cursor, encrypted in
+chunks of 200. The first push (empty cursor) uploads everything; afterwards
+each device only pushes rows whose latest write carries its own device id,
+which is what stops pulled rows from echoing back forever. Triggers: app
+start, foreground, a 4s-debounced hook after every local mutation
+(`syncScheduler`), Supabase Realtime INSERT events from other devices, and
+a manual "Sync now". Every payload is sealed with XChaCha20-Poly1305
+(`vaultCrypto`) under a 32-byte vault key generated on-device and kept in
+the Keychain (`vaultKey`); linking a second device means the USER transfers
+the base64 recovery key (Settings → Legend Sync) — the server can't, by
+design. A `key_id` fingerprint on each relay row turns "wrong key" into a
+clear error instead of garbage, and the pull cursor never advances past a
+row it can't decrypt.
 
 ### 4. Conflict resolution — field-level last-write-wins
 

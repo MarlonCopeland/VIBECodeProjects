@@ -9,7 +9,14 @@
 
 import * as Crypto from 'expo-crypto';
 import { storage } from './storage';
-import { advanceClock, INITIAL_CLOCK_STATE, serializeHlc, type ClockState } from './hlcCore';
+import {
+  advanceClock,
+  INITIAL_CLOCK_STATE,
+  parseHlc,
+  receiveClock,
+  serializeHlc,
+  type ClockState,
+} from './hlcCore';
 
 export * from './hlcCore';
 
@@ -52,4 +59,15 @@ export async function nextHlc(): Promise<string> {
   state = advanceClock(state, Date.now());
   await storage.setItem(STATE_KEY, JSON.stringify(state));
   return serializeHlc(state.lastMillis, state.counter, deviceId!);
+}
+
+/**
+ * Observe a remote HLC stamp (from a pulled sync change) so future local
+ * writes order after everything already seen. Used by the sync engine.
+ */
+export async function observeHlc(remoteHlc: string): Promise<void> {
+  await ensureLoaded();
+  const remote = parseHlc(remoteHlc);
+  state = receiveClock(state, { millis: remote.millis, counter: remote.counter }, Date.now());
+  await storage.setItem(STATE_KEY, JSON.stringify(state));
 }

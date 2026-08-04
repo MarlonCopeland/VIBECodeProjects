@@ -270,9 +270,30 @@ user can pin/exclude to override.
 - [ ] **8.2 Oplog groundwork**
   - [ ] Add stable `id` to `PhoneEntry`/`EmailEntry` so phones/emails get
         real per-item merge like premises already do
-      - [ ] `changes` table + append-on-write, still no network
-- [ ] **8.3 Sync engine** — push/pull `changes` against a Supabase
-      `changes` table; Realtime for live push between online devices
+  - [x] ~~`changes` table + append-on-write~~ — superseded (2026-08-05): the
+        tables themselves are the oplog. Every row's `updated_at` HLC is now
+        bumped on every change INCLUDING tombstones, and `interactions`
+        gained `updated_at` (guarded ALTER + backfill in `schema.ts`), so
+        "changed since X" is a plain indexed query. See SYNC_DESIGN.md §2.
+- [x] **8.3 Sync engine — BUILT 2026-08-05** (`src/features/sync/`):
+      `syncEngine.ts` pull-then-push cycles against the encrypted
+      `sync_changes` relay — pull pages by server-id cursor, decrypts,
+      HLC-guarded upsert in one transaction (`snapshots.ts`), feeds seen
+      stamps into the local clock (`observeHlc`); push encrypts row
+      snapshots in chunks (XChaCha20-Poly1305, `vaultCrypto.ts`) under a
+      SecureStore-held 32-byte vault key (`vaultKey.ts`, user-transferred
+      base64 recovery key links devices; `key_id` fingerprint gives clear
+      wrong-key errors and the pull cursor never skips undecryptable rows).
+      Triggers: start, foreground, 4s debounce after every mutation
+      (`syncScheduler.ts` ← ContactsContext), Realtime INSERTs, manual
+      "Sync now" (Settings → Legend Sync, with status, last-synced,
+      recovery-key reveal/copy/import UI). `SyncProvider` gates on feature
+      flag + Supabase build + per-device toggle + live entitlement check and
+      refreshes ContactsContext when remote changes apply. Tests:
+      `test/sync.test.ts` (HLC receive rule, base64, merge SQL — 10 cases).
+      **Note:** 8.4's "encrypt payloads" landed here too, ahead of schedule;
+      what remains of 8.4 is at-rest SQLite encryption. Multi-device E2E on
+      real hardware still needs a manual pass (TESTING.md-style walkthrough).
   - [x] **Server groundwork (2026-08-04):** `supabase/migrations/0004` —
         `sync_changes` oplog table (owner_id, device_id, tbl, row_id, hlc,
         jsonb patch; identity id = pull cursor) with RLS requiring an ACTIVE

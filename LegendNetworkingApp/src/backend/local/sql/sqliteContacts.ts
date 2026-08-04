@@ -159,10 +159,13 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     hlc: string,
     which: { phones: boolean; emails: boolean; premises: boolean },
   ): Promise<void> {
+    // NOTE: every tombstone write below also bumps updated_at — the sync
+    // engine diffs and merges on updated_at, so a delete must register as
+    // the row's newest version or it would neither push nor win a merge.
     if (which.phones) {
       await d.runAsync(
-        `UPDATE contact_phones SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, contactId],
+        `UPDATE contact_phones SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, contactId],
       );
       for (const p of input.phones) {
         await d.runAsync(
@@ -174,8 +177,8 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
 
     if (which.emails) {
       await d.runAsync(
-        `UPDATE contact_emails SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, contactId],
+        `UPDATE contact_emails SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, contactId],
       );
       for (const e of input.emails) {
         await d.runAsync(
@@ -194,7 +197,7 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       const incomingIds = new Set(input.premises.map((p) => p.id));
       for (const id of existingIds) {
         if (!incomingIds.has(id)) {
-          await d.runAsync(`UPDATE premises SET deleted_at = ? WHERE id = ?`, [hlc, id]);
+          await d.runAsync(`UPDATE premises SET deleted_at = ?, updated_at = ? WHERE id = ?`, [hlc, hlc, id]);
         }
       }
       for (const p of input.premises) {
@@ -281,8 +284,8 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     for (const contactId of currentSet) {
       if (!nextSet.has(contactId)) {
         await d.runAsync(
-          `UPDATE ${table} SET deleted_at = ? WHERE circle_id = ? AND contact_id = ? AND deleted_at IS NULL`,
-          [hlc, circleId, contactId],
+          `UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE circle_id = ? AND contact_id = ? AND deleted_at IS NULL`,
+          [hlc, hlc, circleId, contactId],
         );
       }
     }
@@ -409,27 +412,27 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     async deleteContact(ownerId, id) {
       const d = await db();
       const hlc = await deps.nextHlc();
-      await d.runAsync(`UPDATE contacts SET deleted_at = ? WHERE id = ? AND owner_id = ?`, [hlc, id, ownerId]);
+      await d.runAsync(`UPDATE contacts SET deleted_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?`, [hlc, hlc, id, ownerId]);
       await d.runAsync(
-        `UPDATE contact_phones SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE contact_phones SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
       await d.runAsync(
-        `UPDATE contact_emails SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE contact_emails SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
-      await d.runAsync(`UPDATE premises SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`, [hlc, id]);
+      await d.runAsync(`UPDATE premises SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`, [hlc, hlc, id]);
       await d.runAsync(
-        `UPDATE interactions SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
-      );
-      await d.runAsync(
-        `UPDATE circle_pins SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE interactions SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
       await d.runAsync(
-        `UPDATE circle_excludes SET deleted_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE circle_pins SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
+      );
+      await d.runAsync(
+        `UPDATE circle_excludes SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
     },
 
@@ -456,10 +459,11 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       );
       if (!owned) throw new Error('Contact not found');
       const id = deps.genId();
+      const hlc = await deps.nextHlc();
       const occurredAt = input.occurredAt ?? new Date().toISOString();
       await d.runAsync(
-        `INSERT INTO interactions (id, contact_id, kind, occurred_at, note, premise_id, deleted_at) VALUES (?, ?, ?, ?, ?, ?, NULL)`,
-        [id, input.contactId, input.kind, occurredAt, input.note ?? null, input.premiseId ?? null],
+        `INSERT INTO interactions (id, contact_id, kind, occurred_at, note, premise_id, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
+        [id, input.contactId, input.kind, occurredAt, input.note ?? null, input.premiseId ?? null, hlc],
       );
       return {
         id,
@@ -475,9 +479,9 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       const d = await db();
       const hlc = await deps.nextHlc();
       await d.runAsync(
-        `UPDATE interactions SET deleted_at = ?
+        `UPDATE interactions SET deleted_at = ?, updated_at = ?
          WHERE id = ? AND contact_id IN (SELECT id FROM contacts WHERE owner_id = ?)`,
-        [hlc, id, ownerId],
+        [hlc, hlc, id, ownerId],
       );
     },
 
@@ -556,14 +560,14 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     async deleteCircle(ownerId, id) {
       const d = await db();
       const hlc = await deps.nextHlc();
-      await d.runAsync(`UPDATE circles SET deleted_at = ? WHERE id = ? AND owner_id = ?`, [hlc, id, ownerId]);
+      await d.runAsync(`UPDATE circles SET deleted_at = ?, updated_at = ? WHERE id = ? AND owner_id = ?`, [hlc, hlc, id, ownerId]);
       await d.runAsync(
-        `UPDATE circle_pins SET deleted_at = ? WHERE circle_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE circle_pins SET deleted_at = ?, updated_at = ? WHERE circle_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
       await d.runAsync(
-        `UPDATE circle_excludes SET deleted_at = ? WHERE circle_id = ? AND deleted_at IS NULL`,
-        [hlc, id],
+        `UPDATE circle_excludes SET deleted_at = ?, updated_at = ? WHERE circle_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id],
       );
     },
   };

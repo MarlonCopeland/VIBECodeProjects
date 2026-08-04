@@ -15,6 +15,7 @@ import React, {
 import { backend } from '../../backend';
 import { useAuth } from '../auth/AuthContext';
 import { useAppSettings } from '../settings/AppSettingsContext';
+import { notifySyncWrite } from '../sync/syncScheduler';
 import { computeGrade, type Grade } from './grading';
 import { dedupeAgainst } from './importExport';
 import type {
@@ -155,45 +156,53 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       async createContact(input) {
         const row = await backend.contacts.createContact(requireOwner(), input);
         setContacts((prev) => [...prev, row]);
+        notifySyncWrite();
         return row;
       },
       async updateContact(id, patch) {
         const row = await backend.contacts.updateContact(requireOwner(), id, patch);
         setContacts((prev) => prev.map((c) => (c.id === id ? row : c)));
+        notifySyncWrite();
         return row;
       },
       async deleteContact(id) {
         await backend.contacts.deleteContact(requireOwner(), id);
         setContacts((prev) => prev.filter((c) => c.id !== id));
         setInteractions((prev) => prev.filter((i) => i.contactId !== id));
+        notifySyncWrite();
       },
       async importContacts(inputs) {
         const owner = requireOwner();
         const { fresh, duplicates } = dedupeAgainst(contacts, inputs);
         const rows = await backend.contacts.createContacts(owner, fresh);
         setContacts((prev) => [...prev, ...rows]);
+        notifySyncWrite();
         return { added: rows.length, skippedDuplicates: duplicates.length };
       },
 
       async logInteraction(input) {
         const row = await backend.contacts.logInteraction(requireOwner(), input);
         setInteractions((prev) => [...prev, row]);
+        notifySyncWrite();
         return row;
       },
 
       async createCircle(input) {
         const row = await backend.contacts.createCircle(requireOwner(), input);
         setCircles((prev) => [...prev, row]);
+        notifySyncWrite();
         return row;
       },
       async updateCircle(id, patch) {
         const row = await backend.contacts.updateCircle(requireOwner(), id, patch);
         setCircles((prev) => prev.map((c) => (c.id === id ? row : c)));
+        notifySyncWrite();
         return row;
       },
       async deleteCircle(id) {
         await backend.contacts.deleteCircle(requireOwner(), id);
         setCircles((prev) => prev.filter((c) => c.id !== id));
+        notifySyncWrite();
       },
     }),
     [

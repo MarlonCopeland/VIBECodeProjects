@@ -9,6 +9,7 @@ import { ThemeProvider } from '../theme/ThemeProvider';
 import { AuthProvider } from '../features/auth/AuthContext';
 import { ContactsProvider } from '../features/contacts/ContactsContext';
 import { AppSettingsProvider } from '../features/settings/AppSettingsContext';
+import { SyncProvider } from '../features/sync/SyncProvider';
 
 export function AppProviders({ children }: { children: React.ReactNode }) {
   return (
@@ -17,7 +18,9 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
         <ThemeProvider>
           <AuthProvider>
             <AppSettingsProvider>
-              <ContactsProvider>{children}</ContactsProvider>
+              <ContactsProvider>
+                <SyncProvider>{children}</SyncProvider>
+              </ContactsProvider>
             </AppSettingsProvider>
           </AuthProvider>
         </ThemeProvider>

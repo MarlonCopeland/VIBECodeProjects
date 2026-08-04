@@ -47,3 +47,28 @@ export function advanceClock(prev: ClockState, nowMillis: number): ClockState {
   if (nowMillis > prev.lastMillis) return { lastMillis: nowMillis, counter: 0 };
   return { lastMillis: prev.lastMillis, counter: prev.counter + 1 };
 }
+
+/**
+ * Observe a REMOTE stamp (standard HLC receive rule): the local clock jumps
+ * to at least the remote's logical time, so every stamp this device issues
+ * afterwards is guaranteed to order AFTER everything it has already seen —
+ * even when the two devices' wall clocks are skewed.
+ */
+export function receiveClock(
+  prev: ClockState,
+  remote: { millis: number; counter: number },
+  nowMillis: number,
+): ClockState {
+  const maxMillis = Math.max(prev.lastMillis, remote.millis, nowMillis);
+  if (maxMillis > prev.lastMillis && maxMillis > remote.millis) {
+    // Wall clock is already ahead of both logical clocks.
+    return { lastMillis: maxMillis, counter: 0 };
+  }
+  if (prev.lastMillis === remote.millis && prev.lastMillis === maxMillis) {
+    return { lastMillis: maxMillis, counter: Math.max(prev.counter, remote.counter) + 1 };
+  }
+  if (maxMillis === prev.lastMillis) {
+    return { lastMillis: maxMillis, counter: prev.counter + 1 };
+  }
+  return { lastMillis: maxMillis, counter: remote.counter + 1 };
+}

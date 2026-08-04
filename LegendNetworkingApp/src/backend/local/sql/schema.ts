@@ -60,6 +60,7 @@ const STATEMENTS = [
     occurred_at TEXT NOT NULL,
     note TEXT,
     premise_id TEXT,
+    updated_at TEXT NOT NULL DEFAULT '',
     deleted_at TEXT
   );`,
   `CREATE TABLE IF NOT EXISTS circles (
@@ -106,11 +107,33 @@ const STATEMENTS = [
 // wrongly skip migration for a fresh in-memory test database.
 const migratedDrivers = new WeakSet<SqlDriver>();
 
+// Sorts before every real HLC stamp; marks rows that predate sync bookkeeping.
+const LEGACY_HLC = '000000000000000-000000-legacy';
+
 export async function migrate(driver: SqlDriver): Promise<void> {
   if (migratedDrivers.has(driver)) return;
   for (const stmt of STATEMENTS) {
     await driver.execAsync(stmt);
   }
+
+  // Interactions gained updated_at for the sync engine (Phase 8.3) after
+  // installs already existed, so CREATE IF NOT EXISTS won't add it — patch
+  // older databases in place, then backfill so the merge guard always has a
+  // comparable stamp (a tombstone's stamp if it has one, else a zero stamp
+  // that loses to any real write).
+  const interactionCols = await driver.getAllAsync<{ name: string }>(
+    `PRAGMA table_info(interactions)`,
+  );
+  if (!interactionCols.some((c) => c.name === 'updated_at')) {
+    await driver.execAsync(
+      `ALTER TABLE interactions ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`,
+    );
+  }
+  await driver.runAsync(
+    `UPDATE interactions SET updated_at = COALESCE(deleted_at, ?) WHERE updated_at = ''`,
+    [LEGACY_HLC],
+  );
+
   migratedDrivers.add(driver);
 }
 
