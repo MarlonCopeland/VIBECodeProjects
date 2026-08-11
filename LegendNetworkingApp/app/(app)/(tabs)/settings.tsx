@@ -7,6 +7,7 @@ import { Alert, Linking, Platform, Pressable, Switch, View } from 'react-native'
 import { useRouter, type Href } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import * as WebBrowser from 'expo-web-browser';
 import { Screen } from '../../../src/components/Screen';
 import { Text } from '../../../src/components/Text';
@@ -24,6 +25,19 @@ import { notify } from '../../../src/lib/notify';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 
 const THEME_OPTIONS: ColorSchemePreference[] = ['system', 'light', 'dark'];
+
+/**
+ * "Version 0.1.0 (build 12)" for real builds. In Expo Go the native
+ * version/build belong to Expo Go itself, so fall back to the JS config
+ * version and say so.
+ */
+function appVersionLine(): string {
+  const isExpoGo = Constants.appOwnership === 'expo';
+  const version =
+    (!isExpoGo && Application.nativeApplicationVersion) || Constants.expoConfig?.version || '0.0.0';
+  const build = !isExpoGo ? Application.nativeBuildVersion : null;
+  return `Version ${version}${build ? ` (build ${build})` : ''}${isExpoGo ? ' · Expo Go' : ''}`;
+}
 const PRIVACY_URL = 'https://unjaded.net/legend/privacy_policy.html';
 const ABOUT_URL = 'https://unjaded.net/legend/about';
 const SUPPORT_EMAIL = 'marlon.unjaded@gmail.com';
@@ -381,10 +395,14 @@ export default function SettingsScreen() {
           padding: spacing.md,
           borderRadius: radius.md,
           backgroundColor: colors.surfaceAlt,
+          gap: 2,
         }}
       >
         <Text variant="caption" tone="muted">
           Legend by Unjaded Digital Products · signed in as {user?.email}
+        </Text>
+        <Text variant="caption" tone="muted">
+          {appVersionLine()}
         </Text>
       </View>
     </Screen>

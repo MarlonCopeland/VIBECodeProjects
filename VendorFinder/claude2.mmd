@@ -1,0 +1,16 @@
+flowchart TD
+    ROOT["Chart Creation Method<br/>Token Cost Comparison"]
+
+    ROOT --> A["<b>Mermaid AI</b><br/>Text-based DSL (graph TD ...)<br/>~30–120 tokens<br/><b>1x — Baseline</b>"]
+    ROOT --> B["<b>Chart.js / HTML Canvas</b><br/>JS code + HTML wrapper<br/>~300–700 tokens<br/><b>~5x–6x larger</b>"]
+    ROOT --> C["<b>Static Image (Vision Model)</b><br/>Generated PNG/JPEG frame<br/>~250–1,600 vision tokens<br/><b>~3x–15x larger</b>"]
+    ROOT --> D["<b>Raw Inline SVG</b><br/>XML tags + paths + styling<br/>~800–2,500 tokens<br/><b>~10x–20x larger</b>"]
+    ROOT --> E["<b>Video / Animation</b><br/>MP4 / dynamic vision tokens<br/>~5,000–20,000+ tokens<br/><b>~50x–200x larger</b>"]
+
+    classDef cheap fill:#1b5e20,stroke:#a5d6a7,color:#fff
+    classDef mid fill:#e65100,stroke:#ffcc80,color:#fff
+    classDef high fill:#b71c1c,stroke:#ef9a9a,color:#fff
+
+    class A cheap
+    class B,C mid
+    class D,E high

@@ -44,7 +44,7 @@ export default function LoginScreen() {
           Welcome back
         </Text>
         <Text tone="muted" style={{ marginTop: spacing.xs }}>
-          Sign in to your UnjadedDigital account.
+          Sign in to your Legend account.
         </Text>
       </View>
 

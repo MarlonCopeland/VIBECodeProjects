@@ -7,7 +7,7 @@
 // confirmation.
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, View } from 'react-native';
+import { Linking, Platform, Pressable, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Screen } from '../../src/components/Screen';
@@ -26,6 +26,8 @@ import {
   guessMapping,
   parseCsvTable,
   pickCsvText,
+  presentContactAccessPicker,
+  type ContactsAccess,
   type CsvField,
   type CsvMapping,
 } from '../../src/features/contacts/importExport';
@@ -53,13 +55,24 @@ export default function ContactsImportScreen() {
   const [mapping, setMapping] = useState<CsvMapping | null>(null);
   const [sheetField, setSheetField] = useState<CsvField | null>(null);
 
+  // Device-import state. `access` distinguishes "your phone book is empty"
+  // from iOS 18's "you granted access but shared no contacts", and bumping
+  // `reloadKey` re-runs the whole fetch for a clean retry.
+  const [access, setAccess] = useState<ContactsAccess>('unknown');
+  const [reloadKey, setReloadKey] = useState(0);
+  const [pickerBusy, setPickerBusy] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         if (mode === 'device') {
-          const inputs = await fetchDeviceContacts();
-          if (!cancelled) setCandidates(inputs);
+          if (!cancelled) setCandidates(null);
+          const result = await fetchDeviceContacts();
+          if (!cancelled) {
+            setCandidates(result.inputs);
+            setAccess(result.access);
+          }
         } else {
           const text = await pickCsvText();
           if (text === null) {
@@ -83,9 +96,30 @@ export default function ContactsImportScreen() {
     return () => {
       cancelled = true;
     };
-    // Run once for the screen's mode; contacts changing mid-preview is fine.
+    // Re-runs for the screen's mode and on an explicit retry; contacts
+    // changing mid-preview is fine.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode]);
+  }, [mode, reloadKey]);
+
+  /** Reopen iOS's contact picker, then re-read whatever is now shared. */
+  const chooseSharedContacts = async () => {
+    setPickerBusy(true);
+    try {
+      const shown = await presentContactAccessPicker();
+      if (shown) {
+        setReloadKey((k) => k + 1);
+      } else {
+        notify(
+          'Not available here',
+          Platform.OS === 'ios'
+            ? 'Choosing contacts in-app needs iOS 18. Open Settings › Privacy & Security › Contacts to change access.'
+            : 'Manage contacts access from system settings.',
+        );
+      }
+    } finally {
+      setPickerBusy(false);
+    }
+  };
 
   // First non-empty value per column (among the first 20 rows) — shown as the
   // sample under each column name in the mapping sheet.
@@ -287,6 +321,60 @@ export default function ContactsImportScreen() {
   }
 
   // -------------------------------------------------------------------------
+  // Device import that came back with nothing. Never a dead end: the usual
+  // cause is an iOS 18 limited grant where no contacts were selected, and the
+  // OS will not re-prompt, so re-entering this screen would fail identically
+  // forever without an explicit way back into the picker.
+  // -------------------------------------------------------------------------
+  if (mode === 'device' && candidates.length === 0) {
+    const limited = access === 'limited';
+    return (
+      <Screen scroll>
+        <Stack.Screen options={{ title: 'Import from Phone' }} />
+        <Banner
+          kind="warning"
+          message={
+            limited
+              ? 'No contacts are shared with Legend yet.'
+              : 'No contacts were found on this device.'
+          }
+        />
+        <Text tone="muted" style={{ marginVertical: spacing.md }}>
+          {limited
+            ? 'You chose to share only selected contacts, and none were picked. Nothing was imported — pick the people you want and try again.'
+            : 'Your phone book looks empty, or access is limited to contacts that have since been removed. Nothing was imported.'}
+        </Text>
+
+        {Platform.OS === 'ios' ? (
+          <Button
+            title="Choose contacts to share"
+            loading={pickerBusy}
+            onPress={() => void chooseSharedContacts()}
+          />
+        ) : null}
+        <Button
+          title="Try again"
+          variant="secondary"
+          style={{ marginTop: spacing.sm }}
+          onPress={() => setReloadKey((k) => k + 1)}
+        />
+        <Button
+          title="Open Settings"
+          variant="ghost"
+          style={{ marginTop: spacing.sm }}
+          onPress={() => void Linking.openSettings()}
+        />
+        <Button
+          title="Cancel"
+          variant="ghost"
+          style={{ marginTop: spacing.sm }}
+          onPress={() => router.back()}
+        />
+      </Screen>
+    );
+  }
+
+  // -------------------------------------------------------------------------
   // Preview + confirm (shared by device and CSV paths)
   // -------------------------------------------------------------------------
   const { fresh, duplicates } = dedupeAgainst(contacts, candidates);
@@ -327,6 +415,22 @@ export default function ContactsImportScreen() {
           Nothing new to import — everyone here is already in Legend.
         </Text>
       )}
+
+      {mode === 'device' && access === 'limited' ? (
+        <>
+          <Text variant="caption" tone="muted" style={{ marginBottom: spacing.sm }}>
+            iOS is sharing only the contacts you selected. Missing someone? Widen the selection
+            and Legend will re-read your phone book.
+          </Text>
+          <Button
+            title="Choose more contacts"
+            variant="secondary"
+            loading={pickerBusy}
+            style={{ marginBottom: spacing.sm }}
+            onPress={() => void chooseSharedContacts()}
+          />
+        </>
+      ) : null}
 
       {mode !== 'device' && table ? (
         <Button

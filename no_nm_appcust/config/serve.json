@@ -1,0 +1,33 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/spfx-build/spfx-serve.schema.json",
+  "port": 4321,
+  "https": true,
+  "serveConfigurations": {
+    "default": {
+      "pageUrl": "https://unjadedproducts.sharepoint.com/SitePages/Home.aspx",
+      "customActions": {
+        "c8656d3a-1052-42b5-93c3-199df161192d": {
+          "location": "ClientSideExtension.ApplicationCustomizer",
+          "properties": {
+            "testMessage": "Test message",
+            "footerListTitle": "CSAB Footer Links",
+            "maxFooterLinks": 8
+          }
+        }
+      }
+    },
+    "csBrandingsolution": {
+      "pageUrl": "https://unjadedproducts.sharepoint.com/SitePages/Home.aspx",
+      "customActions": {
+        "c8656d3a-1052-42b5-93c3-199df161192d": {
+          "location": "ClientSideExtension.ApplicationCustomizer",
+          "properties": {
+            "testMessage": "Test message",
+            "footerListTitle": "CSAB Footer Links",
+            "maxFooterLinks": 8
+          }
+        }
+      }
+    }
+  }
+}

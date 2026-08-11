@@ -1,0 +1,16 @@
+graph TD
+    A[Start: Gather Requirements] --> B[Design Architecture]
+    B --> C[Implement Features]
+    C --> D[Code Review]
+    C --> E[Unit Tests]
+    D --> F[Integration Testing]
+    E --> F
+    F --> G{Pass QA?}
+    G -->|Yes| H[Deploy to Staging]
+    G -->|No| I[Fix Defects]
+    I --> F
+    H --> J{Approved?}
+    J -->|Yes| K[Deploy to Production]
+    J -->|No| L[Address Feedback]
+    L --> H
+    K --> M[Tasks Complete]

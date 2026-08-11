@@ -483,6 +483,29 @@ user can pin/exclude to override.
       vault (`localContacts`); `supabaseContacts.ts` deleted. Contacts never
       leave the device in plaintext regardless of backend mode.
 
+## Tester-reported fixes
+
+- [x] **Phone import dead-ends after a limited grant (2026-08-11).** Reported:
+      pick "Select Contacts…" then share none, and every later import attempt
+      shows 0 contacts with no way to recover. Cause: on iOS 18 a *limited*
+      grant still reports `status: 'granted'`, so `fetchDeviceContacts` sailed
+      past the permission check and returned an empty list — and iOS never
+      re-prompts once access is decided, so re-entering the screen failed
+      identically forever. Fix: `fetchDeviceContacts` now returns
+      `{ inputs, access, sharedCount }` using `permission.accessPrivileges`;
+      the import screen has a re-runnable load (`reloadKey`) and a dedicated
+      empty state offering **Choose contacts to share**
+      (`presentAccessPickerAsync`, iOS 18+), **Try again**, and **Open
+      Settings**. The preview screen also gained "Choose more contacts" while
+      access is limited, so a partial share can be widened without backing
+      out. Nothing had been imported in this state, so retry is always clean.
+  - [ ] Not yet verified on hardware: needs a real iOS 18 device: grant
+        limited access with zero contacts, confirm the new empty state, then
+        widen via the picker and confirm the list repopulates.
+- [x] **Login screen said "UnjadedDigital" (2026-08-11)** — template copy on
+      `app/(auth)/login.tsx`; the earlier "placeholder copy" pass only checked
+      the Settings footer. Now reads "Sign in to your Legend account."
+
 ## App Store / TestFlight review readiness
 
 > **Distribution decision (2026-07-30): ship via TestFlight INTERNAL testing

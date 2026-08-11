@@ -184,15 +184,50 @@ export function dedupeAgainst(
 // Device phone book -> ContactInput (expo-contacts)
 // ---------------------------------------------------------------------------
 
-export async function fetchDeviceContacts(): Promise<ContactInput[]> {
+/**
+ * How much of the phone book the OS is actually sharing. iOS 18 added
+ * `'limited'`: the user hand-picks contacts, and the app sees ONLY those —
+ * possibly none at all — while the permission still reports as granted.
+ */
+export type ContactsAccess = 'all' | 'limited' | 'none' | 'unknown';
+
+export interface DeviceContactsResult {
+  inputs: ContactInput[];
+  access: ContactsAccess;
+  /** How many contacts the OS handed over, before name filtering. */
+  sharedCount: number;
+}
+
+/**
+ * Reopen iOS's "select contacts" sheet so the user can widen a limited grant.
+ * Returns false when unavailable (Android, or iOS below 18, where the
+ * underlying promise rejects immediately) so callers can fall back to
+ * pointing at system settings.
+ */
+export async function presentContactAccessPicker(): Promise<boolean> {
+  if (Platform.OS !== 'ios') return false;
+  try {
+    const DeviceContacts = await import('expo-contacts');
+    await DeviceContacts.presentAccessPickerAsync();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchDeviceContacts(): Promise<DeviceContactsResult> {
   if (Platform.OS === 'web') {
     throw new Error('Phone-book import is only available on iOS/Android. Use CSV import on web.');
   }
   const DeviceContacts = await import('expo-contacts');
-  const { status } = await DeviceContacts.requestPermissionsAsync();
-  if (status !== 'granted') {
+  const permission = await DeviceContacts.requestPermissionsAsync();
+  if (permission.status !== 'granted') {
     throw new Error('Contacts permission was declined. Enable it in system settings to import.');
   }
+  // NOTE: on iOS 18 a "limited" grant is still `granted`, so an empty result
+  // here means "you shared nothing", not "your phone book is empty". The
+  // caller needs that distinction to offer a real retry.
+  const access: ContactsAccess = permission.accessPrivileges ?? 'unknown';
   const { data } = await DeviceContacts.getContactsAsync({
     fields: [
       DeviceContacts.Fields.FirstName,
@@ -204,7 +239,7 @@ export async function fetchDeviceContacts(): Promise<ContactInput[]> {
     ],
   });
 
-  return data
+  const inputs = data
     .filter((d) => (d.firstName ?? d.lastName ?? d.name ?? '').trim() !== '')
     .map<ContactInput>((d) => ({
       firstName: (d.firstName ?? d.name ?? '').trim(),
@@ -223,6 +258,8 @@ export async function fetchDeviceContacts(): Promise<ContactInput[]> {
       favorite: false,
       source: 'device',
     }));
+
+  return { inputs, access, sharedCount: data.length };
 }
 
 // ---------------------------------------------------------------------------
