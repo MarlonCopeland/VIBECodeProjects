@@ -65,25 +65,36 @@ const DEFAULTS := {
 		"kb": [{"type": "key", "code": KEY_SHIFT}],
 		"pad": [{"type": "joy_button", "button": JOY_BUTTON_LEFT_STICK}],
 	},
+	# The look actions carry KEYBOARD bindings as well as the right stick, and
+	# that is not a convenience — it is the only camera control that survives a
+	# laptop touchpad. Windows Precision Touchpad suppresses pointer motion
+	# while keys are held (its palm-rejection "disable while typing" rule), so
+	# holding W to walk kills mouse-look on a trackpad and nothing in the game
+	# can observe it, let alone override it. The arrow keys are polled through
+	# the input map instead of the pointer, so they always work.
 	"look_left": {
 		"label": "Look Left", "section": "Camera", "order": 0,
-		"kb": [], "pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_X, "value": -1.0}],
-		"rebind_kb": false, "rebind_pad": false,
+		"kb": [{"type": "key", "code": KEY_LEFT}],
+		"pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_X, "value": -1.0}],
+		"rebind_pad": false,
 	},
 	"look_right": {
 		"label": "Look Right", "section": "Camera", "order": 1,
-		"kb": [], "pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_X, "value": 1.0}],
-		"rebind_kb": false, "rebind_pad": false,
+		"kb": [{"type": "key", "code": KEY_RIGHT}],
+		"pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_X, "value": 1.0}],
+		"rebind_pad": false,
 	},
 	"look_up": {
 		"label": "Look Up", "section": "Camera", "order": 2,
-		"kb": [], "pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_Y, "value": -1.0}],
-		"rebind_kb": false, "rebind_pad": false,
+		"kb": [{"type": "key", "code": KEY_UP}],
+		"pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_Y, "value": -1.0}],
+		"rebind_pad": false,
 	},
 	"look_down": {
 		"label": "Look Down", "section": "Camera", "order": 3,
-		"kb": [], "pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_Y, "value": 1.0}],
-		"rebind_kb": false, "rebind_pad": false,
+		"kb": [{"type": "key", "code": KEY_DOWN}],
+		"pad": [{"type": "joy_axis", "axis": JOY_AXIS_RIGHT_Y, "value": 1.0}],
+		"rebind_pad": false,
 	},
 	"swap_shoulder": {
 		"label": "Swap Shoulder (R3)", "section": "Camera", "order": 4,

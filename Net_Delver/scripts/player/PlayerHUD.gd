@@ -119,6 +119,12 @@ func show_results(banked_credits := 0, deposit := {}) -> void:
 	var parts := int(deposit.get("parts", 0))
 	if parts > 0:
 		lines.append("SALVAGE: %d PARTS  (total %d)" % [parts, SaveManager.parts()])
+	var lost: Dictionary = deposit.get("lost", {})
+	if not lost.is_empty():
+		var spilled: Array[String] = []
+		for item_id in lost:
+			spilled.append("%s x%d" % [ItemDatabase.short_name(str(item_id)), int(lost[item_id])])
+		lines.append("STASH FULL — LOST: %s" % ", ".join(spilled))
 	result_credits.text = "\n".join(lines)
 	result_panel.visible = true
 	result_panel.get_node("Margin/VBox/Return").grab_focus()

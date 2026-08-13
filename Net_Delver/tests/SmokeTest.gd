@@ -45,6 +45,17 @@ func _ready() -> void:
 	# few of them too, which quietly doubled every binding.
 	check(InputMap.action_get_events("jump").size() == 2, "jump has one key and one pad binding")
 
+	# Camera look must be reachable from the keyboard. A laptop touchpad is
+	# suppressed by Windows while a movement key is held, so a mouse-only look
+	# leaves the player unable to turn while walking — and nothing in-engine can
+	# see that happening, which is why it is asserted here instead.
+	for action in ["look_left", "look_right", "look_up", "look_down"]:
+		check(InputSettings.describe_binding(action, "kb") != "—",
+			"%s has a keyboard binding" % action)
+		check(InputMap.action_get_events(action).size() == 2,
+			"%s carries one key and one stick binding" % action)
+	check(InputSettings.is_rebindable("look_left", "kb"), "keyboard look can be rebound")
+
 	# R3 is the shoulder swap on a controller, and it must survive the rebuild.
 	var pad_swap := InputSettings.describe_binding("swap_shoulder", "pad")
 	check(pad_swap == "R3", "shoulder swap bound to R3 (got %s)" % pad_swap)
@@ -259,6 +270,28 @@ func _ready() -> void:
 	check(maverick.VARIANTS.has(str(maverick.get("variant"))), "maverick carries a variant")
 	maverick.apply_slow(2.0, 0.5)
 	check(maverick.slow_timer > 0.0, "cryo slow lands on a maverick")
+	check(maverick.has_method("_has_line_of_sight"), "mavericks test line of sight before engaging")
+
+	# The archetype component is guaranteed, not rolled — killing the frame that
+	# carries a weapon is the only way to learn to build it. Killed from the
+	# back of the list so the grenade test below still owns child 0.
+	var doomed: Node = null
+	for enemy in dungeon.enemies_root.get_children():
+		if not enemy.name.begins_with("Turret") and enemy != maverick:
+			doomed = enemy
+	check(doomed != null, "sector holds a second maverick to salvage")
+	if doomed:
+		var variant_id := str(doomed.get("variant"))
+		var expected := str(dungeon.WRECK_DROPS.get(variant_id, ItemDatabase.SCRAP_ALLOY))
+		doomed.take_damage(5000.0)
+		await get_tree().physics_frame
+		var salvaged := false
+		for pickup in dungeon.pickups_root.get_children():
+			if pickup.name.begins_with("Drop") and str(pickup.get("item_id")) == expected:
+				salvaged = true
+		check(salvaged, "a destroyed %s always drops its %s" % [variant_id, expected])
+
+	await _test_hostile_walls(dungeon)
 
 	# A destroyed turret always sheds its cryo module as a world drop.
 	var drops_before := _count_drops(dungeon)
@@ -587,6 +620,53 @@ func _test_bench() -> void:
 	var mod: Dictionary = stats["weapon_mods"].get(0, {})
 	check(is_equal_approx(float(mod.get("slow_time", 0.0)), 2.5), "cryo visor mods the standard buster")
 
+	# ---- stash capacity ---------------------------------------------------
+	check(SaveManager.stash_slots() == SaveManager.BASE_STASH_SLOTS, "a new stash starts at sixteen slots")
+	check(SaveManager.stash_used() == 0, "an empty stash uses no slots")
+	# One slot per distinct stack, not per unit: a deep stack must not eat the
+	# whole stash the first time twenty components come home.
+	SaveManager.deposit_to_stash({ItemDatabase.SCRAP_ALLOY: 12}, 0)
+	check(SaveManager.stash_used() == 1, "a stack of twelve occupies one slot")
+	SaveManager.deposit_to_stash({ItemDatabase.SCRAP_ALLOY: 5}, 0)
+	check(SaveManager.stash_used() == 1, "growing a stack claims no new slot")
+
+	# Fill to the brim, then prove the overflow is reported rather than binned.
+	var filler := {}
+	for component_id in ItemDatabase.COMPONENT_ORDER:
+		filler[component_id] = 1
+	for equipment_id in ItemDatabase.EQUIPMENT_ORDER:
+		filler[equipment_id] = 1
+	SaveManager.deposit_to_stash(filler, 0)
+	check(SaveManager.stash_used() == SaveManager.BASE_STASH_SLOTS, "the stash fills to exactly its capacity")
+	check(not SaveManager.last_deposit_overflow.is_empty(), "a full stash reports what it turned away")
+	check(not SaveManager.stash_has_room("nonexistent_thing"), "a full stash has no room for a new stack")
+	check(SaveManager.stash_has_room(ItemDatabase.SCRAP_ALLOY), "a full stash still grows a held stack")
+	# Items that already have a stack bank first, so a novelty cannot strand
+	# goods that would always have fitted.
+	var before_scrap := SaveManager.stash_count(ItemDatabase.SCRAP_ALLOY)
+	SaveManager.deposit_to_stash({"guardian_plate": 1, ItemDatabase.SCRAP_ALLOY: 3}, 0)
+	check(SaveManager.stash_count(ItemDatabase.SCRAP_ALLOY) == before_scrap + 3,
+		"a held stack banks even when the stash is full")
+
+	# Expansion is bought in fours, priced on how many were bought already.
+	var first_cost := SaveManager.stash_expansion_cost()
+	check(first_cost == SaveManager.STASH_EXPANSION_STEP_COST, "the first expansion costs one step")
+	check(not SaveManager.expand_stash(), "expansion needs the credits up front")
+	SaveManager.add_credits(first_cost)
+	check(SaveManager.expand_stash(), "expansion succeeds once affordable")
+	check(SaveManager.stash_slots() == SaveManager.BASE_STASH_SLOTS + SaveManager.STASH_SLOT_STEP,
+		"expansion adds four slots")
+	check(SaveManager.credits() == 0, "expansion spends the credits")
+	check(SaveManager.stash_expansion_cost() == first_cost * 2, "each expansion costs more than the last")
+	# The ceiling holds however many are bought.
+	SaveManager.profile["stash_slots"] = SaveManager.MAX_STASH_SLOTS
+	check(SaveManager.stash_expansion_cost() == 0, "a maxed stash cannot be expanded further")
+	check(not SaveManager.expand_stash(), "expanding past the ceiling is refused")
+	SaveManager.profile["stash_slots"] = SaveManager.BASE_STASH_SLOTS
+	SaveManager.profile["stash"] = {}
+	SaveManager.profile["parts"] = 0
+	SaveManager.save_profile()
+
 	check(not SaveManager.can_craft("aegis_helm"), "an empty stash cannot craft")
 	SaveManager.deposit_to_stash({ItemDatabase.SCRAP_ALLOY: 3, ItemDatabase.POWER_CELL: 1}, 2)
 	check(SaveManager.can_craft("aegis_helm"), "components plus parts unlock a recipe")
@@ -626,6 +706,8 @@ func _test_bench() -> void:
 	SaveManager.profile["parts"] = 0
 	SaveManager.profile["deploy_kit"] = {}
 	SaveManager.profile["equipment"] = {}
+	SaveManager.profile["credits"] = 0
+	SaveManager.profile["stash_slots"] = SaveManager.BASE_STASH_SLOTS
 	SaveManager.save_profile()
 
 ## Built by hand rather than fished out of the layout: a laser that is always
@@ -868,6 +950,34 @@ func _test_actions(player: Node) -> void:
 	pad.press(&"use_heal")
 	pad.clear()
 	check(not pad.peek(&"use_heal"), "clear drops everything pending")
+
+## Enemy bolts used to fly straight through the level: a gunner backed against
+## a wall spawns its shot inside the slab, and a ray that starts inside a shape
+## reports no hit unless it is asked to. Asserted against real generated
+## geometry rather than a hand-placed box.
+func _test_hostile_walls(dungeon: Node) -> void:
+	var wall: Node3D = null
+	for child in dungeon.get_children():
+		if child is StaticBody3D and child.name.begins_with("Wall_"):
+			wall = child
+			break
+	check(wall != null, "sector builds solid walls")
+	if not wall:
+		return
+	dungeon.spawn_hostile_shot(90210, wall.global_position, Vector3.FORWARD, 26.0, 14.0)
+	var shot: Node = dungeon.shots_root.get_node_or_null("BossShot_90210")
+	check(shot != null, "hostile bolt spawned for the wall test")
+	for frame in 3:
+		await get_tree().physics_frame
+	check(not is_instance_valid(shot), "a hostile bolt born inside a wall dies instead of passing through")
+
+	# A player's own shot must NOT inherit that rule, or standing in a hazard
+	# volume would make the buster fire blanks.
+	dungeon.spawn_shot(90211, dungeon.local_player().muzzle_position(), Vector3.UP, 0, 0, 24.0, 46.0, 1)
+	var friendly: Node = dungeon.shots_root.get_node_or_null("Shot_90211")
+	check(friendly != null and not friendly.hostile, "player shots do not opt into inside-hits")
+	if is_instance_valid(friendly):
+		friendly.queue_free()
 
 func _count_drops(dungeon: Node) -> int:
 	var count := 0

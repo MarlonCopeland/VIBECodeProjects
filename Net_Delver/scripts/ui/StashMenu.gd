@@ -20,6 +20,8 @@ const STASH_COLUMNS := 5
 var standalone_close: Callable
 
 var _stash_grid: GridContainer
+var _stash_label: Label
+var _expand_button: Button
 var _summary: Label
 var _slot_rows: VBoxContainer
 var _backpack_grid: GridContainer
@@ -72,7 +74,17 @@ func _build() -> void:
 	stash_pane.custom_minimum_size = Vector2(560, 430)
 	stash_pane.add_theme_constant_override("separation", 6)
 	panes.add_child(stash_pane)
-	stash_pane.add_child(UIKit.heading("STASH", 18, UIKit.ACCENT_DIM))
+	var stash_header := HBoxContainer.new()
+	stash_header.add_theme_constant_override("separation", 12)
+	stash_pane.add_child(stash_header)
+	_stash_label = UIKit.heading("STASH", 18, UIKit.ACCENT_DIM)
+	_stash_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stash_header.add_child(_stash_label)
+	_expand_button = UIKit.button("EXPAND")
+	_expand_button.custom_minimum_size = Vector2(190, 32)
+	_expand_button.pressed.connect(_expand)
+	stash_header.add_child(_expand_button)
+
 	_stash_grid = GridContainer.new()
 	_stash_grid.columns = STASH_COLUMNS
 	_stash_grid.add_theme_constant_override("h_separation", 6)
@@ -157,7 +169,32 @@ func _fill_stash() -> void:
 	if ids.is_empty():
 		var empty := UIKit.body("Stash empty. Extract with loot, or craft at the bench.", UIKit.MUTED, 13)
 		_stash_grid.add_child(empty)
-	_hint.text = "Click gear to equip it  •  click a consumable to load it into the backpack  •  components are spent at the bench."
+
+	var used := SaveManager.stash_used()
+	var slots := SaveManager.stash_slots()
+	_stash_label.text = "STASH   %d/%d" % [used, slots]
+	_stash_label.add_theme_color_override("font_color",
+		UIKit.DANGER if used >= slots else UIKit.ACCENT_DIM)
+	var cost := SaveManager.stash_expansion_cost()
+	if cost <= 0:
+		_expand_button.text = "MAX CAPACITY"
+		_expand_button.disabled = true
+	else:
+		_expand_button.text = "EXPAND +%d   %s" % [SaveManager.STASH_SLOT_STEP, UIKit.credits_text(cost)]
+		_expand_button.disabled = SaveManager.credits() < cost
+
+	if used >= slots:
+		_hint.text = "Stash is FULL — loot you extract with will be left behind. Expand it, or spend what you are holding at the bench."
+	else:
+		_hint.text = "Click gear to equip it  •  click a consumable to load it into the backpack  •  components are spent at the bench."
+
+func _expand() -> void:
+	var cost := SaveManager.stash_expansion_cost()
+	if SaveManager.expand_stash():
+		SynthAudio.play("pickup", 1.2, -10.0)
+	else:
+		_hint.text = "Not enough credits — %s needed for the next %d slots." % [
+			UIKit.credits_text(cost), SaveManager.STASH_SLOT_STEP]
 
 func _stash_tile(item_id: String) -> Button:
 	var count := SaveManager.stash_count(item_id)
@@ -179,7 +216,8 @@ func _tooltip(item_id: String) -> String:
 
 func _stash_clicked(item_id: String) -> void:
 	if ItemDatabase.is_gear(item_id):
-		SaveManager.equip(item_id)
+		if not SaveManager.equip(item_id):
+			_hint.text = "No stash slot free to store the gear coming off. Expand the stash or spend something first."
 	elif ItemDatabase.uses_backpack(item_id) and ItemDatabase.kind(item_id) != "component":
 		SaveManager.set_deploy_count(item_id,
 			int(SaveManager.deploy_kit().get(item_id, 0)) + 1)
@@ -208,7 +246,9 @@ func _fill_slots() -> void:
 			slot_button = UIKit.button(ItemDatabase.display_name(held))
 			slot_button.add_theme_color_override("font_color", ItemDatabase.color(held))
 			slot_button.tooltip_text = _tooltip(held) + "\n(click to unequip)"
-			slot_button.pressed.connect(func(): SaveManager.unequip(slot_id))
+			slot_button.pressed.connect(func():
+				if not SaveManager.unequip(slot_id):
+					_hint.text = "Stash is full — nowhere to put %s. Expand it first." % ItemDatabase.display_name(held))
 			if slot_id == "buster" and held == ItemDatabase.BUSTER_STANDARD:
 				slot_button.tooltip_text = _tooltip(held)
 		slot_button.custom_minimum_size = Vector2(0, 36)

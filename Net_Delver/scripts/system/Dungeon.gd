@@ -670,9 +670,11 @@ func _drop_wreck_components(enemy_name: String) -> void:
 	# where a Delver can actually reach it.
 	var spot: Vector3 = enemy.global_position + Vector3.UP * 0.7
 	spot.y = 0.9
-	if variant == "turret" or _loot_rng.randf() < 0.55:
-		next_drop_id += 1
-		spawn_world_drop.rpc(next_drop_id, component, 1, spot)
+	# Guaranteed, not rolled. The archetype component is the whole reason to
+	# pick a fight with a particular frame — behind a coin flip the connection
+	# between "what I killed" and "what I can build" never lands.
+	next_drop_id += 1
+	spawn_world_drop.rpc(next_drop_id, component, 1, spot)
 	if _loot_rng.randf() < 0.35:
 		var filler: String = ItemDatabase.SCRAP_ALLOY if _loot_rng.randf() < 0.6 else ItemDatabase.POWER_CELL
 		next_drop_id += 1

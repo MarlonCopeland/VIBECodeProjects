@@ -78,11 +78,25 @@ const DEFAULT_PROFILE := {
 	"equipment": {},
 	## Index into ARMOR_COLORS.
 	"armor_color": 0,
+	## Stash capacity, bought up with credits. See BASE_STASH_SLOTS.
+	"stash_slots": 16,
 }
 
 ## Base backpack slots before equipment bonuses. One distinct item stack
 ## occupies one slot during a run.
 const BASE_BACKPACK_SLOTS := 6
+
+# --- Stash capacity ---------------------------------------------------------
+# One slot per distinct item stack, matching the backpack. Counting individual
+# units instead would make the starting sixteen meaningless the first time a
+# component stack came home twenty deep.
+const BASE_STASH_SLOTS := 16
+const STASH_SLOT_STEP := 4
+const MAX_STASH_SLOTS := 64
+## Each expansion costs this times the number of expansions already bought,
+## so the first four slots are pocket change and the last four are a campaign.
+## Buying all the way to 64 totals 19,500 credits.
+const STASH_EXPANSION_STEP_COST := 250
 
 ## The armour tints a Delver can pick in the lobby. The default is the classic
 ## DelverRig blue so an untouched profile looks exactly as it always has.
@@ -223,6 +237,42 @@ func stash() -> Dictionary:
 func stash_count(item_id: String) -> int:
 	return int(stash().get(item_id, 0))
 
+## Slots this stash can hold, one per distinct item stack.
+func stash_slots() -> int:
+	return clampi(int(profile.get("stash_slots", BASE_STASH_SLOTS)),
+		BASE_STASH_SLOTS, MAX_STASH_SLOTS)
+
+func stash_used() -> int:
+	return _slots_used(stash())
+
+func _slots_used(block: Dictionary) -> int:
+	var used := 0
+	for item_id in block:
+		if int(block[item_id]) > 0:
+			used += 1
+	return used
+
+## True when `item_id` has somewhere to land: an existing stack to grow, or a
+## free slot to open.
+func stash_has_room(item_id: String) -> bool:
+	return stash_count(item_id) > 0 or stash_used() < stash_slots()
+
+## Credits for the next four slots, or 0 once the stash is maxed out.
+func stash_expansion_cost() -> int:
+	if stash_slots() >= MAX_STASH_SLOTS:
+		return 0
+	var bought := (stash_slots() - BASE_STASH_SLOTS) / STASH_SLOT_STEP
+	return STASH_EXPANSION_STEP_COST * (bought + 1)
+
+func expand_stash() -> bool:
+	var cost := stash_expansion_cost()
+	if cost <= 0 or not spend_credits(cost):
+		return false
+	profile["stash_slots"] = mini(stash_slots() + STASH_SLOT_STEP, MAX_STASH_SLOTS)
+	save_profile()
+	stash_changed.emit()
+	return true
+
 func parts() -> int:
 	return int(profile.get("parts", 0))
 
@@ -233,17 +283,37 @@ func add_parts(amount: int) -> void:
 	save_profile()
 	stash_changed.emit()
 
+## Whatever the last deposit could not fit, so the results screen can tell the
+## player what a full stash cost them instead of quietly binning it.
+var last_deposit_overflow: Dictionary = {}
+
 ## Banks a run's surviving goods. Returns the merged deposit so the results
 ## screen can report exactly what came home.
+##
+## Items that already have a stack are banked first: they need no new slot, so
+## taking them in a second pass could see the last slot spent on a novelty and
+## strand goods that would always have fit. Salvage parts are a plain counter,
+## not a stack, and never consume a slot.
 func deposit_to_stash(items: Dictionary, part_count := 0) -> Dictionary:
-	var current := stash()
+	var current := stash().duplicate()
 	var deposited := {}
+	last_deposit_overflow = {}
+	var newcomers: Array[String] = []
 	for item_id in items:
 		var amount := int(items[item_id])
 		if amount <= 0:
 			continue
-		current[item_id] = int(current.get(item_id, 0)) + amount
-		deposited[item_id] = amount
+		if int(current.get(item_id, 0)) > 0:
+			current[item_id] = int(current[item_id]) + amount
+			deposited[str(item_id)] = amount
+		else:
+			newcomers.append(str(item_id))
+	for item_id in newcomers:
+		if _slots_used(current) >= stash_slots():
+			last_deposit_overflow[item_id] = int(items[item_id])
+			continue
+		current[item_id] = int(items[item_id])
+		deposited[item_id] = int(items[item_id])
 	profile["stash"] = current
 	if part_count > 0:
 		profile["parts"] = parts() + part_count
@@ -296,9 +366,25 @@ func equip(item_id: String) -> bool:
 	var current := equipment()
 	if str(current.get(slot_id, "")) == item_id:
 		return true
+
+	# The swap is worked out on a copy first. Taking the incoming gear out of
+	# the stash can free the very slot the outgoing gear needs, so the two moves
+	# have to be judged together — one at a time, a full stash would either
+	# refuse a swap that fits or delete the piece being replaced.
+	var projected := stash().duplicate()
 	if not free_item:
-		withdraw_from_stash(item_id, 1)
-	_return_to_stash(str(current.get(slot_id, "")))
+		var left := int(projected.get(item_id, 0)) - 1
+		if left <= 0:
+			projected.erase(item_id)
+		else:
+			projected[item_id] = left
+	var outgoing := str(current.get(slot_id, ""))
+	if not outgoing.is_empty() and outgoing != ItemDatabase.BUSTER_STANDARD:
+		if int(projected.get(outgoing, 0)) <= 0 and _slots_used(projected) >= stash_slots():
+			return false
+		projected[outgoing] = int(projected.get(outgoing, 0)) + 1
+
+	profile["stash"] = projected
 	current[slot_id] = item_id
 	profile["equipment"] = current
 	save_profile()
@@ -307,29 +393,34 @@ func equip(item_id: String) -> bool:
 
 ## Empties a slot back into the stash. The buster slot falls back to the free
 ## Standard Buster rather than going empty — a Delver is never unarmed.
-func unequip(slot_id: String) -> void:
+## Returns false when the stash has no room to take the piece back.
+func unequip(slot_id: String) -> bool:
 	var current := equipment()
 	var held := str(current.get(slot_id, ""))
 	if held.is_empty():
-		return
+		return false
+	if slot_id == "buster" and held == ItemDatabase.BUSTER_STANDARD:
+		return false
+	if not _return_to_stash(held):
+		return false
 	if slot_id == "buster":
-		if held == ItemDatabase.BUSTER_STANDARD:
-			return
-		_return_to_stash(held)
 		current["buster"] = ItemDatabase.BUSTER_STANDARD
 	else:
-		_return_to_stash(held)
 		current.erase(slot_id)
 	profile["equipment"] = current
 	save_profile()
 	stash_changed.emit()
+	return true
 
-func _return_to_stash(item_id: String) -> void:
+func _return_to_stash(item_id: String) -> bool:
 	if item_id.is_empty() or item_id == ItemDatabase.BUSTER_STANDARD:
-		return
+		return true
+	if not stash_has_room(item_id):
+		return false
 	var current := stash()
 	current[item_id] = int(current.get(item_id, 0)) + 1
 	profile["stash"] = current
+	return true
 
 ## Aggregate stat block of everything equipped.
 func equipment_stats() -> Dictionary:
@@ -363,21 +454,30 @@ func can_craft(item_id: String) -> bool:
 	for component_id in needed:
 		if stash_count(str(component_id)) < int(needed[component_id]):
 			return false
-	return true
+	# Paying the bill can empty component stacks and free their slots, so the
+	# result is measured against the stash as it will be, not as it is.
+	return _slots_used(_stash_after_craft(item_id)) <= stash_slots()
+
+## The stash as it would stand once a recipe is paid for and its output banked.
+func _stash_after_craft(item_id: String) -> Dictionary:
+	var projected := stash().duplicate()
+	var needed := CraftingDatabase.components(item_id)
+	for component_id in needed:
+		var left := int(projected.get(component_id, 0)) - int(needed[component_id])
+		if left <= 0:
+			projected.erase(component_id)
+		else:
+			projected[component_id] = left
+	projected[item_id] = int(projected.get(item_id, 0)) + 1
+	return projected
 
 ## Consumes the recipe's components and parts from the stash and deposits the
-## crafted item. Returns false (and spends nothing) if anything is missing.
+## crafted item. Returns false (and spends nothing) if anything is missing or
+## the result has no slot to land in.
 func craft(item_id: String) -> bool:
 	if not can_craft(item_id):
 		return false
-	var needed := CraftingDatabase.components(item_id)
-	var current := stash()
-	for component_id in needed:
-		current[component_id] = int(current[component_id]) - int(needed[component_id])
-		if int(current[component_id]) <= 0:
-			current.erase(component_id)
-	current[item_id] = int(current.get(item_id, 0)) + 1
-	profile["stash"] = current
+	profile["stash"] = _stash_after_craft(item_id)
 	profile["parts"] = parts() - CraftingDatabase.parts_cost(item_id)
 	save_profile()
 	stash_changed.emit()

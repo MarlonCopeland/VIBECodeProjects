@@ -216,7 +216,7 @@ func _refresh_sessions(sessions: Array) -> void:
 ## Settings → Controls. Read from the live bindings so a rebind is reflected.
 func _control_summary() -> String:
 	var lines: Array[String] = ["KEYBOARD"]
-	for action in ["aim", "throw_grenade", "use_heal", "interact", "character"]:
+	for action in ["look_left", "aim", "throw_grenade", "use_heal", "interact", "character"]:
 		lines.append(_control_line(action, "kb"))
 	lines.append("")
 	lines.append("CONTROLLER")

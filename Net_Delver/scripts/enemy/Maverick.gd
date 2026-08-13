@@ -102,8 +102,30 @@ func _paint_variant() -> void:
 	barrel.position = Vector3(0, 0.05, -0.95)
 	$Model.add_child(barrel)
 
+## The barrel tip, pulled back to the first thing between it and the body. The
+## raw offset sits 1.3m forward, which is far enough that a frame backed against
+## a wall would otherwise spawn its bolt inside — or on the far side of — a 1m
+## slab, and a shot born inside geometry has nothing left to collide with.
 func muzzle_position() -> Vector3:
-	return global_position + Vector3.UP * 1.05 - global_basis.z * 1.3
+	var base := global_position + Vector3.UP * 1.05
+	var tip := base - global_basis.z * 1.3
+	var query := PhysicsRayQueryParameters3D.create(base, tip)
+	query.exclude = [get_rid()]
+	query.collide_with_areas = false
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return base if hit else tip
+
+## Nothing solid between this frame's sensor and the target. Gunners need it to
+## open fire, and every archetype needs it to wake — without the check a whole
+## room aggroes through a wall the moment a Delver walks past it outside.
+func _has_line_of_sight(target: Node3D) -> bool:
+	var from := global_position + Vector3.UP * 1.05
+	var to: Vector3 = target.global_position + Vector3.UP * 1.0
+	var query := PhysicsRayQueryParameters3D.create(from, to)
+	query.exclude = [get_rid()]
+	query.collide_with_areas = false
+	var hit := get_world_3d().direct_space_state.intersect_ray(query)
+	return hit.is_empty() or hit.get("collider") == target
 
 func _physics_process(delta: float) -> void:
 	if dead:
@@ -127,7 +149,7 @@ func _physics_process(delta: float) -> void:
 	var distance := offset.length()
 
 	if not aggroed:
-		if distance <= float(_profile().get("aggro", 14.0)):
+		if distance <= float(_profile().get("aggro", 14.0)) and _has_line_of_sight(target):
 			aggroed = true
 			SynthAudio.play("enemy", 1.3, -14.0)
 		else:
@@ -181,6 +203,13 @@ func _tick_gunner(target: Node3D, offset: Vector3, distance: float, speed: float
 		velocity.x = move_toward(velocity.x, 0.0, speed)
 		velocity.z = move_toward(velocity.z, 0.0, speed)
 	look_at(global_position + direction, Vector3.UP)
+
+	# Firing needs a clear lane. Breaking the sight line also cancels a burst
+	# already in flight, so ducking behind cover mid-volley actually works.
+	var can_see := _has_line_of_sight(target)
+	if not can_see:
+		_burst_remaining = 0
+		return
 
 	# Stagger a pending burst.
 	if _burst_remaining > 0:

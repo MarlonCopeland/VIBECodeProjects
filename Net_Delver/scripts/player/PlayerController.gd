@@ -703,6 +703,9 @@ func bank_loadout() -> Dictionary:
 		var weapon_id := ItemDatabase.weapon_id_for_index(weapon_index)
 		carried[weapon_id] = int(carried.get(weapon_id, 0)) + 1
 	report["items"] = SaveManager.deposit_to_stash(carried, run_parts)
+	# A full stash turns loot away at the door. Reported rather than swallowed,
+	# so the results screen can say what the missing slots actually cost.
+	report["lost"] = SaveManager.last_deposit_overflow.duplicate()
 	run_parts = 0
 	inventory = {}
 	return report
@@ -718,12 +721,35 @@ func _interact() -> void:
 		else:
 			dungeon.request_pickup.rpc_id(1, multiplayer.get_unique_id(), closest.name)
 
+## Backpack slots are per distinct stack, so an item already carried always has
+## somewhere to go and only a *new* kind can be turned away. Mirrors the host's
+## rule in Dungeon._can_accept — the client predicts it purely to explain
+## itself, the host still decides.
+func backpack_full_for(item_id: String) -> bool:
+	if item_id.is_empty() or not ItemDatabase.uses_backpack(item_id):
+		return false
+	if item_count(item_id) > 0:
+		return false
+	var stacks := 0
+	for held_id in inventory:
+		if int(inventory[held_id]) > 0 and ItemDatabase.uses_backpack(str(held_id)):
+			stacks += 1
+	return stacks >= backpack_capacity
+
 func _update_interaction() -> void:
 	var pickup := _closest_pickup()
 	if not pickup:
 		interaction_prompt = ""
 		return
 	var label: String = pickup.prompt_text() if pickup.has_method("prompt_text") else "EQUIP %s" % pickup.display_name
+	# A full pack used to refuse the pickup in silence: the prompt still read
+	# "[E] SCRAP ALLOY x1" and pressing E simply did nothing, which is what made
+	# salvage look like it was never dropping at all.
+	var carried_id: Variant = pickup.get("item_id")
+	if backpack_full_for(str(carried_id) if carried_id != null else ""):
+		interaction_prompt = "%s — BACKPACK FULL  [%s] TO DROP SOMETHING" % [
+			label, InputSettings.describe_binding("character", "kb")]
+		return
 	interaction_prompt = "[%s] %s" % [_interact_hint, label]
 
 func _closest_pickup() -> Node:

@@ -89,7 +89,11 @@ The Delver is specced from the stash across five slots — HEAD, ARMS, BODY, LEG
 | Coil Springs | Legs | +30% jump height |
 | Featherweight Frame | Legs | +20% recharge, +5% speed |
 
-The declared loadout travels with the lobby roster, so every peer builds every Delver with the same stats, and the host prices fire-rate and on-hit mods without trusting the client. A buster found in the sector and carried through extraction banks into the stash as a real, equippable weapon. Items can be dropped from the backpack mid-run as world pickups any party member can claim.
+The declared loadout travels with the lobby roster, so every peer builds every Delver with the same stats, and the host prices fire-rate and on-hit mods without trusting the client. A buster found in the sector and carried through extraction banks into the stash as a real, equippable weapon. Items can be dropped from the backpack mid-run as world pickups any party member can claim — and when the pack is full the interact prompt says so, rather than letting the press do nothing.
+
+### Stash capacity
+
+The stash holds one *stack* per slot, starting at 16 and bought up in steps of 4 to a ceiling of 64. Each expansion costs 250 credits times the number already bought, so filling the stash out completely runs to 19,500 credits — a long-term sink for a currency that otherwise only funded consumables. A full stash turns extracted loot away at the door and the results screen names what was lost, so capacity is a decision rather than a silent tax.
 
 ## Networking
 

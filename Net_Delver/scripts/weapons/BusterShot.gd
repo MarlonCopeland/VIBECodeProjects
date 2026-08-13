@@ -71,6 +71,11 @@ func _physics_process(delta: float) -> void:
 	query.collide_with_areas = true    # boss weak points are Area3D
 	query.collide_with_bodies = true
 	query.exclude = exclude_rids
+	# A machine standing against a wall has its muzzle inside that wall, and a
+	# ray that STARTS inside a shape reports no hit by default — which is how
+	# enemy bolts were flying straight through the level. Only hostile fire opts
+	# in: a player shot begun inside a trap volume should still leave the barrel.
+	query.hit_from_inside = hostile
 	var hit := get_world_3d().direct_space_state.intersect_ray(query)
 
 	if hit.is_empty():
