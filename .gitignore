@@ -27,7 +27,13 @@ supabase/.temp/
 
 # OS generated files
 .DS_Store
-Snapshots*
+
+# NOTE: do not add a bare `Snapshots*` pattern here. Git matches ignore rules
+# case-insensitively when core.ignorecase is true (the default on Windows and
+# macOS), so it also swallows ordinary sources like `snapshots.ts` — which is
+# invisible locally and only surfaces as a missing module in CI/EAS builds,
+# because those build from the git archive rather than the working tree.
+# Scope any future snapshot rule to its directory, e.g. `**/__snapshots__/`.
 
 # Logs and temporary data
 npm-debug.log*

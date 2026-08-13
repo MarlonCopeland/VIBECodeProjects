@@ -7,32 +7,59 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "APP_BACKEND": "local"
+        "APP_VERSION": "0.2.0",
+        "APP_BACKEND": "local",
+        "AUTH_GOOGLE_ENABLED": "false",
+        "AUTH_APPLE_ENABLED": "false"
       }
     },
     "preview": {
       "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
       "env": {
-        "APP_BACKEND": "supabase"
+        "APP_VERSION": "0.2.0",
+        "APP_BACKEND": "supabase",
+        "SUPABASE_URL": "https://krxszvviuqlzxxcvhyss.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyeHN6dnZpdXFsenh4Y3ZoeXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTI1MTEsImV4cCI6MjEwMTM2ODUxMX0.FmqEiEN298JZpIdero8vlZrEZ2sQj_zrGlR5ABEYLls",
+        "AUTH_GOOGLE_ENABLED": "false",
+        "AUTH_APPLE_ENABLED": "false",
+        "FEATURE_PALETTE_STORE": "true"
       }
     },
     "production": {
       "autoIncrement": true,
+      "android": {
+        "buildType": "app-bundle"
+      },
       "env": {
+        "APP_VERSION": "0.2.0",
         "APP_BACKEND": "supabase",
+        "SUPABASE_URL": "https://krxszvviuqlzxxcvhyss.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyeHN6dnZpdXFsenh4Y3ZoeXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTI1MTEsImV4cCI6MjEwMTM2ODUxMX0.FmqEiEN298JZpIdero8vlZrEZ2sQj_zrGlR5ABEYLls",
+        "AUTH_GOOGLE_ENABLED": "false",
+        "AUTH_APPLE_ENABLED": "false",
         "FEATURE_PALETTE_STORE": "false"
       }
     },
     "testflight": {
       "extends": "production",
       "env": {
-        "APP_BACKEND": "local",
         "FEATURE_PALETTE_STORE": "true"
       }
     }
   },
   "submit": {
-    "production": {}
+    "production": {
+      "ios": {},
+      "android": {
+        "track": "internal"
+      }
+    }
   }
 }

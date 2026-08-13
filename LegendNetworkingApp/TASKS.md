@@ -506,6 +506,51 @@ user can pin/exclude to override.
       `app/(auth)/login.tsx`; the earlier "placeholder copy" pass only checked
       the Settings footer. Now reads "Sign in to your Legend account."
 
+## Build & release prep — 2026-08-11
+
+- [x] **Cloud builds were shipping broken — fixed.** `.env` is gitignored, so
+      EAS Build never received it. A `production` build therefore resolved
+      `backend: supabase` with `supabaseUrl: ""` and `anonKey: ""`, meaning
+      `getSupabase()` would throw at the login screen — and
+      `AUTH_GOOGLE/APPLE_ENABLED` fell back to their `true` defaults, putting
+      non-functional social buttons in front of a reviewer. Every profile in
+      `eas.json` now carries explicit `env` (Supabase URL + anon key, auth
+      flags off, pinned `APP_VERSION`). Verified by resolving the config with
+      the production profile's env: 0.2.0 / supabase / key present / auth off.
+      (The anon key is public by design — it already ships inside every client
+      bundle — so committing it to `eas.json` leaks nothing. Move it to
+      `eas env:create` if you'd rather manage it server-side.)
+- [x] **Version pinned to 0.2.0** across profiles and `.env` (was silently
+      1.0.0 in cloud builds, 0.1.0 locally).
+- [x] **Permission surface trimmed to what Legend actually uses.**
+      `expo-image-picker` no longer requests CAMERA/microphone (the avatar
+      flow only calls `launchImageLibraryAsync`); `expo-location` no longer
+      declares the "Always"/background strings (we ask when-in-use, once, on
+      add-contact); `expo-secure-store` no longer declares Face ID (never used
+      with `requireAuthentication`); Android blocks WRITE_CONTACTS (import is
+      one-way), CAMERA, and RECORD_AUDIO. Introspected result — iOS declares
+      exactly Contacts, WhenInUse location, and Photo Library; Android
+      declares READ_CONTACTS, location, storage, INTERNET. No SMS or call-log
+      permissions anywhere.
+- [x] **Android profiles**: `production` builds an AAB for Play,
+      `preview`/`development` build APKs for sideloading. `submit.production`
+      targets the Play `internal` track.
+- [x] **TestFlight profile now runs on live Supabase** (was the local demo
+      backend), so testers exercise real accounts, metrics, and Legend Sync.
+- [ ] **Blocked on credentials — must be run by Marlon** (I can't log in or
+      handle signing material): `eas login`, then the build/submit commands.
+      See the release checklist in README/handover.
+  - [ ] Confirm no prior 1.0.0 build exists (`eas build:list`) before shipping
+        0.2.0 — App Store Connect won't accept a lower version after a higher
+        one.
+  - [ ] Apple: create the app record in App Store Connect for
+        `com.unjadeddigital.legend`, complete the App Privacy questionnaire,
+        and set the privacy-policy URL.
+  - [ ] Google Play: create the app, upload the first AAB, complete Data
+        Safety (contacts + location + email; note sync payloads are
+        end-to-end encrypted), content rating, and App Access test credentials
+        (the app is behind a login).
+
 ## App Store / TestFlight review readiness
 
 > **Distribution decision (2026-07-30): ship via TestFlight INTERNAL testing

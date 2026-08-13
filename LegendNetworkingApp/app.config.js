@@ -62,6 +62,15 @@ module.exports = ({ config }) => ({
       foregroundImage: './assets/adaptive-icon.png',
       backgroundColor: '#0B0D12',
     },
+    // Legend only READS the phone book (one-way import) and never writes back,
+    // and it never opens the camera. Libraries add these by default; Play
+    // Console makes you justify every sensitive permission you declare, so
+    // don't declare ones the app doesn't use.
+    blockedPermissions: [
+      'android.permission.WRITE_CONTACTS',
+      'android.permission.CAMERA',
+      'android.permission.RECORD_AUDIO',
+    ],
   },
   web: {
     bundler: 'metro',
@@ -75,7 +84,15 @@ module.exports = ({ config }) => ({
     'expo-router',
     'expo-asset',
     'expo-font',
-    'expo-secure-store',
+    [
+      'expo-secure-store',
+      {
+        // SecureStore is used for the auth session and the sync vault key,
+        // never with requireAuthentication, so Face ID is never invoked.
+        // Don't declare a biometric purpose string we don't use.
+        faceIDPermission: false,
+      },
+    ],
     [
       'expo-contacts',
       {
@@ -91,6 +108,12 @@ module.exports = ({ config }) => ({
         // Apple auto-rejects photo access without NSPhotoLibraryUsageDescription.
         photosPermission:
           `Allow ${APP_NAME} to access your photo library so you can pick a profile photo. Photos are only used for the avatar you choose.`,
+        // profileService only calls launchImageLibraryAsync — the camera and
+        // mic are never used, so decline the permissions this plugin would
+        // otherwise add. Undeclared-but-requested permissions are friction in
+        // Play Console review and an easy Apple rejection.
+        cameraPermission: false,
+        microphonePermission: false,
       },
     ],
     [
@@ -98,6 +121,12 @@ module.exports = ({ config }) => ({
       {
         locationWhenInUsePermission:
           `${APP_NAME} uses your location once, when you add a contact, to prefill where you met. It is never tracked or shared.`,
+        // Drop the "Always" variants the plugin adds by default. Legend only
+        // ever asks for when-in-use, one shot, on the add-contact screen —
+        // shipping an unjustified background-location string invites an App
+        // Review question we have no answer for.
+        locationAlwaysAndWhenInUsePermission: false,
+        locationAlwaysPermission: false,
       },
     ],
     [

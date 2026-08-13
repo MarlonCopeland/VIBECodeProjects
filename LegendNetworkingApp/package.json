@@ -13,6 +13,8 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
+    "check:imports": "node scripts/check-imports.js",
+    "prebuild:check": "npm run typecheck && npm run check:imports",
     "test": "vitest run",
     "lint": "expo lint",
     "prebuild": "expo prebuild"
