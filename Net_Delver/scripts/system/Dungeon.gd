@@ -12,7 +12,6 @@ const BOSS_SCRIPT := preload("res://scripts/enemy/Boss.gd")
 const TURRET_SCRIPT := preload("res://scripts/enemy/Turret.gd")
 const BOSS_GATE_SCRIPT := preload("res://scripts/system/BossGate.gd")
 
-const SHOT_COLORS: Array[Color] = [Color("58d6ff"), Color("6cff7d"), Color("ffba52"), Color("ef5d69")]
 const HOSTILE_COLOR := Color("ff4d3d")
 const WEAK_POINT_COLOR := Color("ffd34d")
 const BLAST_COLOR := Color("ffb347")
@@ -137,8 +136,8 @@ func _spawn_party() -> void:
 		inventories[id] = kit.duplicate()
 		var loadout: Dictionary = roster[id].get("equipment", {"buster": ItemDatabase.BUSTER_STANDARD})
 		equipment_by_peer[id] = loadout.duplicate()
-		backpack_by_peer[id] = SaveManager.BASE_BACKPACK_SLOTS \
-			+ int(ItemDatabase.aggregate_stats(loadout).get("backpack", 0))
+		backpack_by_peer[id] = DelverDatabase.backpack_slots(
+			ItemDatabase.aggregate_stats(loadout))
 
 func _spawn_enemies() -> void:
 	enemies_root = Node3D.new()
@@ -170,15 +169,15 @@ func _spawn_pickups() -> void:
 	pickups_root = Node3D.new()
 	pickups_root.name = "Pickups"
 	add_child(pickups_root)
-	var weapon_names := ["STANDARD BUSTER", "RAPID BUSTER", "SCATTER BUSTER", "SIEGE BUSTER"]
 	for index in layout["loot"].size():
 		var entry: Dictionary = layout["loot"][index]
 		var location: Vector3 = entry["position"]
 		match str(entry["kind"]):
 			"weapon":
 				var weapon_index := int(entry.get("weapon_index", 1))
-				_create_pickup("Cache%02d" % index, weapon_index, weapon_names[weapon_index],
-					location, SHOT_COLORS[weapon_index])
+				_create_pickup("Cache%02d" % index, weapon_index,
+					WeaponDatabase.display_name(weapon_index),
+					location, WeaponDatabase.color(weapon_index))
 			"chest":
 				_create_chest("Chest%02d" % index, location)
 			"shard":
@@ -265,14 +264,15 @@ func request_fire(peer_id: int, weapon_index: int, origin: Vector3, direction: V
 	var player := players_root.get_node_or_null(str(peer_id))
 	if not player or player.weapon_index != weapon_index:
 		return
-	var weapon: Dictionary = player.WEAPONS[weapon_index]
+	var weapon: Dictionary = WeaponDatabase.stats(weapon_index)
 	var level := clampi(charge_level, 0, 2)
 	# Buster synergy mods come from the roster's declared equipment, priced on
 	# the host — a client cannot invent a faster gun than it deployed with.
 	var mods: Dictionary = ItemDatabase.aggregate_stats(
 		equipment_by_peer.get(peer_id, {})).get("weapon_mods", {}).get(weapon_index, {})
 	var now := Time.get_ticks_msec()
-	var cooldown := float(weapon.cooldown) * (1.0 if level == 0 else 0.6) \
+	var cooldown := float(weapon.cooldown) \
+		* (1.0 if level == 0 else WeaponDatabase.CHARGE_COOLDOWN_SCALE) \
 		* float(mods.get("fire_rate", 1.0))
 	# Check `has` rather than defaulting to 0: early in engine uptime
 	# `now - 0` is still smaller than the cooldown window, which silently ate
@@ -290,10 +290,10 @@ func request_fire(peer_id: int, weapon_index: int, origin: Vector3, direction: V
 	if aim.is_zero_approx():
 		aim = -player.global_basis.z
 
-	var damage := float(weapon.damage) * float(player.CHARGE_DAMAGE[level])
+	var damage := float(weapon.damage) * WeaponDatabase.CHARGE_DAMAGE[level]
 	var pellets := int(weapon.spread) + int(mods.get("pellets", 0))
 	if level == 2 and pellets > 1:
-		pellets += 4      # charged scatter throws a much wider net
+		pellets += WeaponDatabase.CHARGE_BONUS_PELLETS   # charged scatter throws wider
 	var slow_time := float(mods.get("slow_time", 0.0))
 	var slow_factor := float(mods.get("slow_factor", 1.0))
 
@@ -330,14 +330,17 @@ func spawn_shot(shot_id: int, origin: Vector3, direction: Vector3, weapon_index:
 	shot.weapon_index = weapon_index
 	shot.hostile = false
 	shot.authoritative = multiplayer.is_server()
-	shot.pierce_remaining = 3 if level == 2 else 0
+	shot.pierce_remaining = WeaponDatabase.CHARGE_PIERCE if level == 2 else 0
 	shot.slow_time = slow_time
 	shot.slow_factor = slow_factor
 	shot.exclude_rids = _player_rids()
 	shots_root.add_child(shot)
 	shot.global_position = origin
 
-	var cue := "heavy" if (weapon_index == 3 or level == 2) else "shot"
+	# Heavy report for a big slug or any charged shot, read off the weapon's own
+	# weight rather than a hard-coded index.
+	var heavy: bool = float(WeaponDatabase.stats(weapon_index).get("weight", 0.0)) >= 25.0
+	var cue := "heavy" if (heavy or level == 2) else "shot"
 	SynthAudio.play(cue, (0.85 + weapon_index * 0.09) - level * 0.16, -8.0)
 	_muzzle_flash(origin, weapon_index, level, shooter_id)
 
@@ -439,7 +442,7 @@ func _can_accept(peer_id: int, item_id: String) -> bool:
 	for held_id in inventory:
 		if int(inventory[held_id]) > 0 and ItemDatabase.uses_backpack(str(held_id)):
 			stacks += 1
-	return stacks < int(backpack_by_peer.get(peer_id, SaveManager.BASE_BACKPACK_SLOTS))
+	return stacks < int(backpack_by_peer.get(peer_id, DelverDatabase.BASE_BACKPACK_SLOTS))
 
 ## `force` bypasses the slot check for guaranteed rewards (the guardian's
 ## dragon core must never bounce off a full pack).
@@ -476,7 +479,7 @@ func _hostile_rids() -> Array[RID]:
 
 func _muzzle_flash(origin: Vector3, weapon_index: int, level: int, _shooter_id: int) -> void:
 	var flash := OmniLight3D.new()
-	flash.light_color = SHOT_COLORS[clampi(weapon_index, 0, 3)]
+	flash.light_color = WeaponDatabase.color(weapon_index)
 	flash.light_energy = 3.0 + level * 2.5
 	flash.omni_range = 3.5 + level
 	flash.position = origin
@@ -487,7 +490,7 @@ func _muzzle_flash(origin: Vector3, weapon_index: int, level: int, _shooter_id: 
 
 ## Called by BusterShot on every peer when a shot terminates.
 func impact_effect(point: Vector3, weapon_index: int, level: int, hostile: bool, weak_point: bool) -> void:
-	var color: Color = HOSTILE_COLOR if hostile else SHOT_COLORS[clampi(weapon_index, 0, 3)]
+	var color: Color = HOSTILE_COLOR if hostile else WeaponDatabase.color(weapon_index)
 	if weak_point:
 		color = WEAK_POINT_COLOR
 	var light := OmniLight3D.new()
@@ -637,16 +640,6 @@ func spawn_world_drop(drop_id: int, item_id: String, amount: int, location: Vect
 	_create_item_pickup("Drop%04d" % drop_id, item_id, amount, location, 0.0)
 	SynthAudio.play("pickup", 0.75, -20.0)
 
-## What each machine's wreck can shed. The archetype-specific component always
-## leads; generic salvage pads the table so crafting basics accumulate.
-const WRECK_DROPS := {
-	"melee": ItemDatabase.SERVO_MOTOR,
-	"rapid": ItemDatabase.RAPID_ACTUATOR,
-	"scatter": ItemDatabase.SCATTER_MANIFOLD,
-	"siege": ItemDatabase.SIEGE_FRAME,
-	"turret": ItemDatabase.CRYO_MODULE,
-}
-
 func enemy_defeated(enemy_name: String) -> void:
 	if not multiplayer.is_server():
 		return
@@ -657,29 +650,34 @@ func enemy_defeated(enemy_name: String) -> void:
 	if enemies_remaining <= 0 and not boss_active:
 		spawn_boss.rpc()
 
-## Host-rolled component drop at the wreck. Turrets always pay their module
-## (they are the only source); mobile frames drop theirs a little over half the
-## time, with a side chance of generic salvage.
+## Host-rolled salvage at the wreck. What each archetype sheds, and how often,
+## is EnemyDatabase's `drops` table — retuning a drop rate never means opening
+## this file.
 func _drop_wreck_components(enemy_name: String) -> void:
 	var enemy := enemies_root.get_node_or_null(enemy_name) if enemies_root else null
 	if not enemy:
 		return
-	var variant := "turret" if enemy_name.begins_with("Turret") else str(enemy.get("variant"))
-	var component := str(WRECK_DROPS.get(variant, ItemDatabase.SCRAP_ALLOY))
+	var archetype := EnemyDatabase.TURRET if enemy_name.begins_with("Turret") \
+		else str(enemy.get("variant"))
 	# Wall turrets die metres up the wall; their salvage falls to the floor
 	# where a Delver can actually reach it.
-	var spot: Vector3 = enemy.global_position + Vector3.UP * 0.7
+	var spot: Vector3 = enemy.global_position
 	spot.y = 0.9
-	# Guaranteed, not rolled. The archetype component is the whole reason to
-	# pick a fight with a particular frame — behind a coin flip the connection
-	# between "what I killed" and "what I can build" never lands.
-	next_drop_id += 1
-	spawn_world_drop.rpc(next_drop_id, component, 1, spot)
-	if _loot_rng.randf() < 0.35:
-		var filler: String = ItemDatabase.SCRAP_ALLOY if _loot_rng.randf() < 0.6 else ItemDatabase.POWER_CELL
+	_scatter_drops(EnemyDatabase.roll_drops(archetype, _loot_rng), spot, 0.8)
+
+## Materialises one rolled drop set: floor items scatter around `origin`, and
+## anything flagged `every_player` is handed straight to each Delver.
+func _scatter_drops(rolled: Dictionary, origin: Vector3, spread: float) -> void:
+	for award in rolled["floor"]:
 		next_drop_id += 1
-		spawn_world_drop.rpc(next_drop_id, filler, 1,
-			spot + Vector3(_loot_rng.randf_range(-0.8, 0.8), 0.0, _loot_rng.randf_range(-0.8, 0.8)))
+		var offset := Vector3(_loot_rng.randf_range(-spread, spread), 0.0,
+			_loot_rng.randf_range(-spread, spread))
+		spawn_world_drop.rpc(next_drop_id, str(award["item"]), int(award["count"]), origin + offset)
+	for award in rolled["every_player"]:
+		for id in inventories:
+			# Forced past the slot limit: a guaranteed reward must never bounce
+			# off a full pack.
+			_grant_item(int(id), str(award["item"]), int(award["count"]), true)
 
 ## Credits are shared by the whole party rather than split, so nobody has to
 ## race a teammate to a kill.
@@ -744,20 +742,13 @@ func boss_defeated() -> void:
 	if not multiplayer.is_server():
 		return
 	award_credits.rpc(BOSS_CREDITS)
-	# The guardian's reactor is the whole reason to fight it: every member of
-	# the party is handed a DRAGON CORE (bypassing the slot limit — a boss
-	# reward must never bounce off a full pack) plus a scatter of salvage at
-	# the wreck for whoever walks over first.
-	for id in inventories:
-		_grant_item(int(id), ItemDatabase.DRAGON_CORE, 1, true)
+	# The guardian's reactor is the whole reason to fight it. What it pays, and
+	# which part of it goes straight into every Delver's pack rather than onto
+	# the floor, is EnemyDatabase's guardian `drops` table.
 	if is_instance_valid(boss):
 		var wreck: Vector3 = boss.global_position
 		wreck.y = 0.9
-		for index in 3:
-			next_drop_id += 1
-			var filler: String = ItemDatabase.SCRAP_ALLOY if index < 2 else ItemDatabase.POWER_CELL
-			spawn_world_drop.rpc(next_drop_id, filler, 1,
-				wreck + Vector3(_loot_rng.randf_range(-2.0, 2.0), 0.0, _loot_rng.randf_range(-2.0, 2.0)))
+		_scatter_drops(EnemyDatabase.roll_drops(EnemyDatabase.GUARDIAN, _loot_rng), wreck, 2.0)
 	boss_destroyed.rpc()
 
 @rpc("authority", "call_local", "reliable")

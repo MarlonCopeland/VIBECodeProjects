@@ -9,11 +9,9 @@ extends StaticBody3D
 # against the purge objective, and drops the CRYO MODULE component its own
 # coolant gun is built from.
 
-const AGGRO_RANGE := 20.0
-const FIRE_COOLDOWN := 1.9
-const SHOT_SPEED := 24.0
-const SHOT_DAMAGE := 11.0
-const TRACK_SPEED := 3.0
+## Range, cadence, tracking speed, projectile, and drops all come from
+## EnemyDatabase.ARCHETYPES["turret"].
+const ARCHETYPE := EnemyDatabase.TURRET
 
 @export var max_health := 60.0
 
@@ -28,6 +26,7 @@ var _eye: MeshInstance3D
 var _barrel: MeshInstance3D
 
 func _ready() -> void:
+	max_health = EnemyDatabase.value(ARCHETYPE, "health", max_health)
 	health = max_health
 	_build_body()
 
@@ -63,7 +62,7 @@ func _build_body() -> void:
 	housing.mesh = housing_mesh
 	_head.add_child(housing)
 
-	var accent := Color("9fe8ff")
+	var accent := EnemyDatabase.accent(ARCHETYPE)
 	var eye_material := StandardMaterial3D.new()
 	eye_material.albedo_color = accent
 	eye_material.emission_enabled = true
@@ -107,7 +106,8 @@ func _physics_process(delta: float) -> void:
 	if target and _head:
 		var aim := target.global_position + Vector3.UP * 1.1 - _head.global_position
 		var desired := atan2(aim.x, aim.z) + PI - rotation.y
-		_head.rotation.y = lerp_angle(_head.rotation.y, desired, clampf(delta * TRACK_SPEED, 0.0, 1.0))
+		var track := EnemyDatabase.value(ARCHETYPE, "track_speed", 3.0)
+		_head.rotation.y = lerp_angle(_head.rotation.y, desired, clampf(delta * track, 0.0, 1.0))
 
 	if not multiplayer.is_server():
 		return
@@ -117,20 +117,24 @@ func _physics_process(delta: float) -> void:
 	if not aggroed:
 		aggroed = true
 		SynthAudio.play("enemy", 1.6, -16.0)
-		fire_timer = maxf(fire_timer, 0.6)   # wind-up beat before the first bolt
+		# Wind-up beat, so a turret never opens fire the frame it sees you.
+		fire_timer = maxf(fire_timer, EnemyDatabase.value(ARCHETYPE, "wind_up", 0.6))
 		return
 	if fire_timer <= 0.0:
-		fire_timer = FIRE_COOLDOWN
+		fire_timer = EnemyDatabase.value(ARCHETYPE, "fire_cooldown", 1.9)
 		var dungeon := get_tree().get_first_node_in_group("dungeon")
 		if dungeon and dungeon.has_method("spawn_enemy_shot"):
+			var shot := EnemyDatabase.shot(ARCHETYPE)
 			var origin := muzzle_position()
 			var direction: Vector3 = (target.global_position + Vector3.UP * 1.0 - origin).normalized()
-			dungeon.spawn_enemy_shot(origin, direction, SHOT_SPEED, SHOT_DAMAGE)
+			dungeon.spawn_enemy_shot(origin, direction,
+				float(shot.get("speed", 24.0)), float(shot.get("damage", 11.0)))
 
 ## Nearest living player inside range with an unbroken sight line.
 func _visible_target() -> Node3D:
 	var nearest: Node3D
-	var best := AGGRO_RANGE * AGGRO_RANGE
+	var range_limit := EnemyDatabase.value(ARCHETYPE, "aggro", 20.0)
+	var best := range_limit * range_limit
 	for player in get_tree().get_nodes_in_group("players"):
 		if player.get("current_health") != null and float(player.current_health) <= 0.0:
 			continue

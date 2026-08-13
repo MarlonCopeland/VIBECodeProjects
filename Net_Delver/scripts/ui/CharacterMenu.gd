@@ -72,7 +72,7 @@ func _clear(box: VBoxContainer) -> void:
 
 func _fill_equipment(player: Node) -> void:
 	_clear(_equipment)
-	var weapon: Dictionary = player.WEAPONS[player.weapon_index]
+	var weapon: Dictionary = WeaponDatabase.stats(player.weapon_index)
 	_equipment.add_child(UIKit.heading(str(weapon.name), 20, UIKit.TEXT))
 	var traits: Array[String] = []
 	if weapon.auto:

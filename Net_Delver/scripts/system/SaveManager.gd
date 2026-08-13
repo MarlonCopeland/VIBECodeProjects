@@ -82,9 +82,9 @@ const DEFAULT_PROFILE := {
 	"stash_slots": 16,
 }
 
-## Base backpack slots before equipment bonuses. One distinct item stack
-## occupies one slot during a run.
-const BASE_BACKPACK_SLOTS := 6
+## Base backpack slots before equipment bonuses, aliased from the Delver tuning
+## table so the number is spelled once.
+const BASE_BACKPACK_SLOTS := DelverDatabase.BASE_BACKPACK_SLOTS
 
 # --- Stash capacity ---------------------------------------------------------
 # One slot per distinct item stack, matching the backpack. Counting individual

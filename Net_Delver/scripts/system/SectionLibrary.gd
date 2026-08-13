@@ -187,25 +187,11 @@ const TURRET_MOUNTS := {
 static func turret_mounts(kind_id: String) -> int:
 	return int(TURRET_MOUNTS.get(kind_id, 0))
 
-## Maverick variant weights. Melee frames dominate, gunners salt the mix so
-## every archetype's crafting component stays obtainable in a normal run.
-const ENEMY_VARIANTS := {
-	"melee": 0.5,
-	"rapid": 0.2,
-	"scatter": 0.18,
-	"siege": 0.12,
-}
-
+## Which frame walks out of a spawn point. The weights themselves live with the
+## archetypes in EnemyDatabase, so an enemy's stats, drops, and how often it
+## appears are all edited in one place.
 static func roll_variant(rng: RandomNumberGenerator) -> String:
-	var total := 0.0
-	for variant in ENEMY_VARIANTS:
-		total += float(ENEMY_VARIANTS[variant])
-	var pick := rng.randf() * total
-	for variant in ENEMY_VARIANTS:
-		pick -= float(ENEMY_VARIANTS[variant])
-		if pick <= 0.0:
-			return str(variant)
-	return "melee"
+	return EnemyDatabase.roll_spawn(rng)
 
 ## Difficulty knobs applied on top of the per-section counts, so a whole run can
 ## be scaled without editing every entry.

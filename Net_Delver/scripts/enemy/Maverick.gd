@@ -14,33 +14,10 @@ extends CharacterBody3D
 # any damage taken. That turns each room into an ambush the party can start on
 # its own terms instead of a sector-wide bee-line.
 
-const VARIANTS := {
-	"melee": {
-		"aggro": 14.0, "speed": 3.2, "health": 78.0,
-		"attack_damage": 18.0, "attack_range": 2.3, "attack_cooldown": 1.35,
-		"accent": "ff4d3d",
-	},
-	"rapid": {
-		"aggro": 17.0, "speed": 2.8, "health": 64.0,
-		"hold_range": Vector2(9.0, 13.0), "fire_cooldown": 1.7,
-		"shot": {"speed": 30.0, "damage": 6.0, "count": 3, "spread": 0.05, "stagger": 0.14},
-		"accent": "6cff7d",
-	},
-	"scatter": {
-		"aggro": 15.0, "speed": 3.0, "health": 88.0,
-		"hold_range": Vector2(6.0, 9.0), "fire_cooldown": 2.2,
-		"shot": {"speed": 24.0, "damage": 5.0, "count": 4, "spread": 0.16, "stagger": 0.0},
-		"accent": "ffba52",
-	},
-	"siege": {
-		"aggro": 22.0, "speed": 2.2, "health": 110.0,
-		"hold_range": Vector2(13.0, 18.0), "fire_cooldown": 3.1,
-		"shot": {"speed": 20.0, "damage": 22.0, "count": 1, "spread": 0.0, "stagger": 0.0},
-		"accent": "ef5d69",
-	},
-}
-
-@export var variant := "melee"
+## Every number this frame runs on lives in EnemyDatabase.ARCHETYPES. Adding a
+## variation — a tougher melee frame, a faster gunner — is an entry there and
+## nothing here; only a genuinely new *behavior* needs code in this file.
+@export var variant := EnemyDatabase.MELEE
 @export var max_health := 78.0
 @export var move_speed := 3.2
 @export var attack_damage := 18.0
@@ -71,25 +48,28 @@ func _ready() -> void:
 	_paint_variant()
 
 func _profile() -> Dictionary:
-	return VARIANTS.get(variant, VARIANTS["melee"])
+	return EnemyDatabase.get_archetype(variant)
 
 ## Gunners advertise their archetype: the core takes the weapon's colour and a
 ## barrel replaces part of the face plate. Materials are duplicated first —
 ## the .tscn shares them across every instance.
 func _paint_variant() -> void:
-	var accent := Color(str(_profile().get("accent", "ff4d3d")))
+	var accent := EnemyDatabase.accent(variant)
 	var core_material := core.mesh.surface_get_material(0).duplicate() as StandardMaterial3D
 	core_material.albedo_color = accent
 	core_material.emission = accent
 	core.material_override = core_material
-	if variant == "melee":
+	if EnemyDatabase.behavior(variant) != "gunner":
 		return
+	# Barrel proportions follow the archetype's own projectile: a fast light
+	# round gets a thin barrel, a slow heavy one gets a long fat barrel.
+	var shot := EnemyDatabase.shot(variant)
 	var barrel := MeshInstance3D.new()
 	barrel.name = "Barrel"
 	var mesh := CylinderMesh.new()
-	mesh.top_radius = 0.09 if variant == "rapid" else 0.14
+	mesh.top_radius = clampf(0.05 + float(shot.get("damage", 10.0)) * 0.005, 0.07, 0.16)
 	mesh.bottom_radius = 0.16
-	mesh.height = 0.7 if variant != "siege" else 1.0
+	mesh.height = clampf(0.6 + float(shot.get("damage", 10.0)) * 0.02, 0.6, 1.0)
 	var material := StandardMaterial3D.new()
 	material.albedo_color = accent
 	material.metallic = 0.7
@@ -163,10 +143,10 @@ func _physics_process(delta: float) -> void:
 			return
 
 	var speed := move_speed * (slow_factor if slow_timer > 0.0 else 1.0)
-	if variant == "melee":
-		_tick_melee(target, offset, distance, speed)
-	else:
+	if EnemyDatabase.behavior(variant) == "gunner":
 		_tick_gunner(target, offset, distance, speed, delta)
+	else:
+		_tick_melee(target, offset, distance, speed)
 	_apply_gravity(delta)
 	move_and_slide()
 
@@ -294,7 +274,7 @@ func apply_slow(duration: float, factor: float) -> void:
 		var reset := get_tree().create_timer(duration)
 		reset.timeout.connect(func():
 			if is_instance_valid(self) and not dead and slow_timer <= 0.05:
-				material.emission = Color(str(_profile().get("accent", "ff4d3d"))))
+				material.emission = EnemyDatabase.accent(variant))
 
 @rpc("authority", "call_local", "reliable")
 func destroy() -> void:

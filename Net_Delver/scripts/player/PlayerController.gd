@@ -1,42 +1,18 @@
 extends CharacterBody3D
 
-# WEAPONS
-#   auto        : held trigger keeps firing (no charge), machine-gun feel
-#   chargeable  : tap fires a pea shot, hold builds a Mega Man style charge
-const WEAPONS := [
-	{"name": "STANDARD BUSTER", "damage": 24.0, "cooldown": 0.32, "stamina": 8.0, "weight": 8.0, "range": 45.0, "spread": 1, "speed": 46.0, "auto": false, "chargeable": true},
-	{"name": "RAPID BUSTER", "damage": 11.0, "cooldown": 0.11, "stamina": 3.0, "weight": 12.0, "range": 35.0, "spread": 1, "speed": 54.0, "auto": true, "chargeable": false},
-	{"name": "SCATTER BUSTER", "damage": 9.0, "cooldown": 0.65, "stamina": 16.0, "weight": 18.0, "range": 22.0, "spread": 5, "speed": 38.0, "auto": false, "chargeable": true},
-	{"name": "SIEGE BUSTER", "damage": 58.0, "cooldown": 1.15, "stamina": 26.0, "weight": 29.0, "range": 60.0, "spread": 1, "speed": 34.0, "auto": false, "chargeable": true},
-]
+# Gameplay numbers live in the tuning tables, not here:
+#   WeaponDatabase — every buster, its damage/cadence/colour, and charge tiers
+#   DelverDatabase — base health, stamina, speed, jump, sprint, stamina costs
+#   ItemDatabase   — consumables and the equipment that modifies those bases
+# This script owns behaviour and the camera rig; retuning should never require
+# opening it.
 
-# Charge tuning. A tap fires instantly; the charge only starts building after
-# CHARGE_DELAY so rapid tapping never accidentally banks a charge.
-const CHARGE_DELAY := 0.26
-const CHARGE_TIME := 1.05
-const CHARGE_MID := 0.45
-const CHARGE_DAMAGE: Array[float] = [1.0, 2.3, 4.2]
-const CHARGE_STAMINA: Array[float] = [1.0, 1.8, 2.6]
-
-const GRAVITY := 20.0
-const JUMP_VELOCITY := 8.4
-const COYOTE_TIME := 0.12
-const AIR_CONTROL := 0.72
-const AIR_DASH_COST := 22.0
 const AIM_DISTANCE := 200.0
 
-# --- Sprint -----------------------------------------------------------------
-# Forward-only, stamina-priced, and mutually exclusive with aiming. That last
-# rule is what keeps it from being a free movement upgrade: sprinting is how you
-# cross ground, not how you fight, and dropping out of it to shoot is the cost.
-const SPRINT_SPEED_SCALE := 1.55
-const SPRINT_DRAIN := 14.0
-## Stamina needed to *start* a sprint. Lower than the drain rate so you cannot
-## start one you can only hold for a few frames.
-const SPRINT_MIN_STAMINA := 12.0
-## How forward the stick has to be pointing. Sprinting sideways or backwards
-## reads as a bug, and it would make the strafe set unreachable.
-const SPRINT_FORWARD_DOT := 0.4
+# Sprint is forward-only, stamina-priced, and mutually exclusive with aiming.
+# That last rule is what keeps it from being a free movement upgrade: sprinting
+# is how you cross ground, not how you fight, and dropping out of it to shoot is
+# the cost. The numbers are in DelverDatabase.
 
 # --- Camera rig -------------------------------------------------------------
 # Over-the-shoulder framing: the pivot sits at chest height, the spring arm is
@@ -56,16 +32,12 @@ const ADS_MOVE_SCALE := 0.55
 const PITCH_MIN := -1.15
 const PITCH_MAX := 0.85
 
-const BASE_HEALTH := 100.0
-const BASE_STAMINA := 100.0
-const BASE_SPEED := 6.5
+@export var max_health := DelverDatabase.BASE_HEALTH
+@export var max_stamina := DelverDatabase.BASE_STAMINA
+@export var move_speed := DelverDatabase.BASE_SPEED
 
-@export var max_health := 100.0
-@export var max_stamina := 100.0
-@export var move_speed := 6.5
-
-var current_health := 100.0
-var current_stamina := 100.0
+var current_health := DelverDatabase.BASE_HEALTH
+var current_stamina := DelverDatabase.BASE_STAMINA
 var weapon_index := 0
 
 # Loadout carried into this run. Seeded from the lobby roster in _ready() so
@@ -73,9 +45,9 @@ var weapon_index := 0
 # an RPC racing the scene load.
 var equipment: Dictionary = {}
 var equipment_stats: Dictionary = {}
-var jump_velocity := JUMP_VELOCITY
+var jump_velocity := DelverDatabase.BASE_JUMP_VELOCITY
 var stamina_regen_scale := 1.0
-var backpack_capacity := 6
+var backpack_capacity := DelverDatabase.BASE_BACKPACK_SLOTS
 var interaction_prompt := ""
 var invulnerable := false
 var fire_time := 0.0
@@ -207,14 +179,13 @@ func _adopt_loadout() -> void:
 	if not equipment.has("buster"):
 		equipment["buster"] = ItemDatabase.BUSTER_STANDARD
 	equipment_stats = ItemDatabase.aggregate_stats(equipment)
-	max_health = BASE_HEALTH + float(equipment_stats.get("health", 0.0))
-	max_stamina = BASE_STAMINA + float(equipment_stats.get("stamina", 0.0))
-	move_speed = BASE_SPEED * (1.0 + float(equipment_stats.get("speed", 0.0)))
-	# Jump height scales with velocity squared, so a height bonus takes the root.
-	jump_velocity = JUMP_VELOCITY * sqrt(1.0 + float(equipment_stats.get("jump", 0.0)))
-	stamina_regen_scale = 1.0 + float(equipment_stats.get("regen", 0.0))
-	backpack_capacity = SaveManager.BASE_BACKPACK_SLOTS + int(equipment_stats.get("backpack", 0))
-	weapon_index = clampi(ItemDatabase.weapon_index(str(equipment["buster"])), 0, WEAPONS.size() - 1)
+	max_health = DelverDatabase.max_health(equipment_stats)
+	max_stamina = DelverDatabase.max_stamina(equipment_stats)
+	move_speed = DelverDatabase.move_speed(equipment_stats)
+	jump_velocity = DelverDatabase.jump_velocity(equipment_stats)
+	stamina_regen_scale = DelverDatabase.stamina_regen_scale(equipment_stats)
+	backpack_capacity = DelverDatabase.backpack_slots(equipment_stats)
+	weapon_index = clampi(ItemDatabase.weapon_index(str(equipment["buster"])), 0, WeaponDatabase.count() - 1)
 
 ## The buster synergy mods active for the weapon currently held. Only the mods
 ## keyed to this weapon apply — swap weapons mid-run and the synergy sleeps.
@@ -246,7 +217,7 @@ func _build_rig() -> void:
 	add_child(animator)
 	animator.setup(self)
 	charge_light = OmniLight3D.new()
-	charge_light.light_color = Color("58d6ff")
+	charge_light.light_color = WeaponDatabase.color(weapon_index)
 	charge_light.light_energy = 0.0
 	charge_light.omni_range = 3.5
 	rig.charge_fx.add_child(charge_light)
@@ -314,7 +285,7 @@ func _physics_process(delta: float) -> void:
 		_reset_charge()
 		velocity.x = 0.0
 		velocity.z = 0.0
-		velocity.y = -0.5 if is_on_floor() else velocity.y - GRAVITY * delta
+		velocity.y = -0.5 if is_on_floor() else velocity.y - DelverDatabase.GRAVITY * delta
 		interaction_prompt = ""
 		move_and_slide()
 		return
@@ -327,7 +298,7 @@ func _physics_process(delta: float) -> void:
 
 	var grounded := is_on_floor()
 	if grounded:
-		coyote_timer = COYOTE_TIME
+		coyote_timer = DelverDatabase.COYOTE_TIME
 		air_dash_available = true
 	else:
 		coyote_timer = maxf(0.0, coyote_timer - delta)
@@ -341,9 +312,9 @@ func _physics_process(delta: float) -> void:
 
 	var speed := move_speed * (ActionTable.speed_scale(action) if rolling else 1.0)
 	if sprinting and not rolling:
-		speed *= SPRINT_SPEED_SCALE
-	if equip_load() >= 0.7:
-		speed *= 0.78
+		speed *= DelverDatabase.SPRINT_SPEED_SCALE
+	if equip_load() >= WeaponDatabase.HEAVY_LOAD_RATIO:
+		speed *= DelverDatabase.HEAVY_LOAD_SPEED_SCALE
 	# Aiming trades mobility for precision, the way it does in a modern
 	# over-the-shoulder shooter — a dodge roll cancels out of it instantly.
 	if not rolling:
@@ -357,8 +328,8 @@ func _physics_process(delta: float) -> void:
 	else:
 		# Airborne: steer, don't teleport. Keeps jump arcs readable while
 		# still allowing mid-air correction.
-		velocity.x = lerpf(velocity.x, target_x, AIR_CONTROL * delta * 6.0)
-		velocity.z = lerpf(velocity.z, target_z, AIR_CONTROL * delta * 6.0)
+		velocity.x = lerpf(velocity.x, target_x, DelverDatabase.AIR_CONTROL * delta * 6.0)
+		velocity.z = lerpf(velocity.z, target_z, DelverDatabase.AIR_CONTROL * delta * 6.0)
 
 	_apply_jump(delta, grounded)
 	move_and_slide()
@@ -410,10 +381,11 @@ func _tick_stamina(delta: float) -> void:
 		current_stamina = max_stamina
 		return
 	if sprinting:
-		current_stamina = maxf(0.0, current_stamina - SPRINT_DRAIN * delta)
+		current_stamina = maxf(0.0, current_stamina - DelverDatabase.SPRINT_DRAIN * delta)
 		return
 	current_stamina = minf(max_stamina,
-		current_stamina + (9.0 if rolling else 21.0) * stamina_regen_scale * delta)
+		current_stamina + (DelverDatabase.STAMINA_REGEN_ROLLING if rolling
+			else DelverDatabase.STAMINA_REGEN) * stamina_regen_scale * delta)
 
 func stamina_boosted() -> bool:
 	return stamina_boost > 0.0
@@ -439,8 +411,8 @@ func _apply_jump(delta: float, grounded: bool) -> void:
 		return
 	# Variable jump height: releasing early clips the rise short.
 	if velocity.y > 0.0 and not Input.is_action_pressed("jump"):
-		velocity.y = move_toward(velocity.y, 0.0, GRAVITY * 2.2 * delta)
-	velocity.y -= GRAVITY * delta
+		velocity.y = move_toward(velocity.y, 0.0, DelverDatabase.GRAVITY * 2.2 * delta)
+	velocity.y -= DelverDatabase.GRAVITY * delta
 
 func _read_actions(delta: float) -> void:
 	var input := Input.get_vector("move_left", "move_right", "move_forward", "move_backward")
@@ -451,20 +423,20 @@ func _read_actions(delta: float) -> void:
 	_read_aim()
 	_read_sprint()
 
-	if buffer.peek(&"roll") and _can_spend(20.0):
+	if buffer.peek(&"roll") and _can_spend(DelverDatabase.ROLL_COST):
 		buffer.consume(&"roll")
 		if move_direction.is_zero_approx():
 			move_direction = forward
 		if is_on_floor():
 			_begin_action(ActionTable.roll_for_load(equip_load()))
-			_spend_stamina(20.0)
+			_spend_stamina(DelverDatabase.ROLL_COST)
 			SynthAudio.play("roll", 1.0 + randf_range(-0.08, 0.08), -13.0)
-		elif air_dash_available and _can_spend(AIR_DASH_COST):
+		elif air_dash_available and _can_spend(DelverDatabase.AIR_DASH_COST):
 			# Mega Man X style air dash: one burst of horizontal speed per jump.
 			air_dash_available = false
-			_spend_stamina(AIR_DASH_COST)
-			velocity.x = move_direction.x * move_speed * 2.1
-			velocity.z = move_direction.z * move_speed * 2.1
+			_spend_stamina(DelverDatabase.AIR_DASH_COST)
+			velocity.x = move_direction.x * move_speed * DelverDatabase.AIR_DASH_SPEED_SCALE
+			velocity.z = move_direction.z * move_speed * DelverDatabase.AIR_DASH_SPEED_SCALE
 			velocity.y = maxf(velocity.y, 1.2)
 			SynthAudio.play("roll", 1.5, -12.0)
 
@@ -479,14 +451,14 @@ func _read_actions(delta: float) -> void:
 ## stamina, you turn sideways, you leave the ground, you raise the sight.
 func _read_sprint() -> void:
 	var held := Input.is_action_pressed("sprint")
-	var forward_enough := move_direction.dot(-global_basis.z) > SPRINT_FORWARD_DOT
+	var forward_enough := move_direction.dot(-global_basis.z) > DelverDatabase.SPRINT_FORWARD_DOT
 	var able := held and forward_enough and is_on_floor() and not aiming and not rolling
 	if not able:
 		sprinting = false
 		return
 	# Starting costs more than continuing, so a sprint cannot be re-tapped for
 	# free once the bar is empty.
-	sprinting = current_stamina > 0.5 if sprinting else _can_spend(SPRINT_MIN_STAMINA)
+	sprinting = current_stamina > 0.5 if sprinting else _can_spend(DelverDatabase.SPRINT_MIN_STAMINA)
 
 ## Hold-to-aim is the default (trigger/right mouse held); toggle mode is a
 ## gameplay setting for players who prefer it.
@@ -499,7 +471,7 @@ func _read_aim() -> void:
 ## Tap = instant shot. Hold = charge, released as a heavy shot. Auto weapons
 ## skip charging entirely and just keep firing while held.
 func _read_attack(delta: float) -> void:
-	var weapon: Dictionary = WEAPONS[weapon_index]
+	var weapon: Dictionary = WeaponDatabase.stats(weapon_index)
 	if weapon.auto:
 		if Input.is_action_pressed("attack"):
 			_fire(0)
@@ -512,7 +484,7 @@ func _read_attack(delta: float) -> void:
 		_fire(0)
 	elif Input.is_action_pressed("attack") and weapon.chargeable:
 		hold_time += delta
-		charge = clampf((hold_time - CHARGE_DELAY) / CHARGE_TIME, 0.0, 1.0)
+		charge = clampf((hold_time - WeaponDatabase.CHARGE_DELAY) / WeaponDatabase.CHARGE_TIME, 0.0, 1.0)
 		var level := charge_level()
 		if level > charge_announced:
 			charge_announced = level
@@ -525,7 +497,7 @@ func _read_attack(delta: float) -> void:
 func charge_level() -> int:
 	if charge >= 0.999:
 		return 2
-	if charge >= CHARGE_MID:
+	if charge >= WeaponDatabase.CHARGE_MID:
 		return 1
 	return 0
 
@@ -573,9 +545,9 @@ func aim_direction() -> Vector3:
 	return direction if not direction.is_zero_approx() else -global_basis.z
 
 func _fire(level: int) -> void:
-	var weapon: Dictionary = WEAPONS[weapon_index]
+	var weapon: Dictionary = WeaponDatabase.stats(weapon_index)
 	var mod := active_weapon_mod()
-	var cost := float(weapon.stamina) * CHARGE_STAMINA[clampi(level, 0, 2)] \
+	var cost := float(weapon.stamina) * WeaponDatabase.CHARGE_STAMINA[clampi(level, 0, 2)] \
 		* float(mod.get("stamina_cost", 1.0))
 	if fire_time > 0.0 or not _can_spend(cost):
 		return
@@ -766,7 +738,7 @@ func _closest_pickup() -> Node:
 
 @rpc("any_peer", "call_local", "reliable")
 func equip_weapon(index: int) -> void:
-	weapon_index = clampi(index, 0, WEAPONS.size() - 1)
+	weapon_index = clampi(index, 0, WeaponDatabase.count() - 1)
 	_reset_charge()
 	_update_buster_color()
 	if is_multiplayer_authority():
@@ -801,26 +773,26 @@ func _respawn() -> void:
 		global_position = dungeon.spawn_position_for(multiplayer.get_unique_id())
 
 func weapon_name() -> String:
-	return WEAPONS[weapon_index].name
+	return WeaponDatabase.stats(weapon_index).name
 
 func equip_load() -> float:
-	return float(WEAPONS[weapon_index].weight) / 40.0
+	return float(WeaponDatabase.stats(weapon_index).weight) / WeaponDatabase.LOAD_CAPACITY
 
 func weight_class() -> String:
-	return "HEAVY FRAME" if equip_load() >= 0.7 else "MOBILE FRAME"
+	return "HEAVY FRAME" if equip_load() >= WeaponDatabase.HEAVY_LOAD_RATIO else "MOBILE FRAME"
 
 func _update_buster_color() -> void:
 	if not is_node_ready():
 		return
-	var colors := [Color("58d6ff"), Color("6cff7d"), Color("ffba52"), Color("ef5d69")]
+	var color := WeaponDatabase.color(weapon_index)
 	var material := buster.get_active_material(0).duplicate() as StandardMaterial3D
-	material.albedo_color = colors[weapon_index]
+	material.albedo_color = color
 	material.emission_enabled = true
-	material.emission = colors[weapon_index]
+	material.emission = color
 	# Tuned down from 2.2: the buster used to be a 0.95m cylinder held out at
 	# arm's length. On the rig it is a 0.38m barrel at chest height, close to
 	# the camera, and the old value plus the glow pass blew out the whole torso.
 	material.emission_energy_multiplier = 0.85
 	buster.material_override = material
 	if charge_light:
-		charge_light.light_color = colors[weapon_index]
+		charge_light.light_color = color

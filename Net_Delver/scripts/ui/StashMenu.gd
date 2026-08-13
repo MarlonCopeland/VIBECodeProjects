@@ -280,8 +280,8 @@ func _fill_backpack() -> void:
 func _fill_stats() -> void:
 	var stats := SaveManager.equipment_stats()
 	var parts: Array[String] = []
-	parts.append("HP %d" % int(PlayerControllerStats.BASE_HEALTH + float(stats.get("health", 0.0))))
-	parts.append("STAMINA %d" % int(PlayerControllerStats.BASE_STAMINA + float(stats.get("stamina", 0.0))))
+	parts.append("HP %d" % int(DelverDatabase.max_health(stats)))
+	parts.append("STAMINA %d" % int(DelverDatabase.max_stamina(stats)))
 	if absf(float(stats.get("speed", 0.0))) > 0.001:
 		parts.append("SPEED %+d%%" % int(round(float(stats["speed"]) * 100.0)))
 	if absf(float(stats.get("jump", 0.0))) > 0.001:
@@ -319,10 +319,3 @@ func _close_crafting() -> void:
 func _close() -> void:
 	if standalone_close.is_valid():
 		standalone_close.call()
-
-
-## Tiny indirection so this screen can quote base stats without preloading the
-## whole player controller script.
-class PlayerControllerStats:
-	const BASE_HEALTH := 100.0
-	const BASE_STAMINA := 100.0

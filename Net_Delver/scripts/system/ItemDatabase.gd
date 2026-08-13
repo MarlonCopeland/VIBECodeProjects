@@ -1,11 +1,41 @@
 class_name ItemDatabase
 extends RefCounted
 
-# Every item in the game. Kept as plain data so the HUD, the inventory screen,
-# the stash, the crafting bench, the world pickups, and the server-side
-# inventory all read the same numbers instead of each hard-coding their own.
+# ============================================================================
+# ITEM TUNING TABLE — every consumable, component, and piece of equipment.
+# ============================================================================
 #
-# Kinds:
+# Weapons live in WeaponDatabase and are folded in automatically; recipes live
+# in CraftingDatabase; enemies and their drops live in EnemyDatabase.
+#
+# TO ADD A CONSUMABLE OR COMPONENT:
+#   1. Add an id constant, an entry in ITEMS, and put the id in ORDER (for a
+#      consumable, which also puts it on the HUD strip) or COMPONENT_ORDER.
+#   2. A consumable that does something needs an `action` here plus a branch in
+#      PlayerController.apply_item_effect; a component needs neither.
+#
+# TO ADD A PIECE OF EQUIPMENT:
+#   1. Add an entry in ITEMS with kind "equipment", the `slot` it occupies, and
+#      a `stats` block (see the STAT REFERENCE below).
+#   2. Add its id to EQUIPMENT_ORDER so the stash and bench list it.
+#   3. Add a recipe in CraftingDatabase so it can actually be built.
+#   Nothing else needs touching — the slot UI, the stat maths, the tooltips and
+#   the multiplayer sync all read this table.
+#
+# STAT REFERENCE (the `stats` block on equipment)
+#   health / stamina  Flat additions to the maximums.
+#   speed / regen     Fractional bonuses; 0.15 means +15%.
+#   jump              Fractional jump HEIGHT bonus.
+#   backpack          Extra backpack slots.
+#   weapon_mod        Buster synergy, active only while that weapon is held:
+#                       weapon        index into WeaponDatabase.ORDER
+#                       slow_factor   speed multiplier applied to what it hits
+#                       slow_time     seconds the slow lasts
+#                       fire_rate     cooldown multiplier (0.8 = 20% faster)
+#                       pellets       extra pellets per shot
+#                       stamina_cost  cost multiplier (0.7 = 30% cheaper)
+#
+# KINDS
 #   consumable / grenade — usable during a run, stack in the backpack
 #   currency             — credit shards, spent on pickup
 #   weapon               — a buster; equips into the BUSTER slot
@@ -17,11 +47,11 @@ const OVERCLOCK_CELL := "overclock_cell"
 const FRAG_CHARGE := "frag_charge"
 const CREDIT_SHARD := "credit_shard"
 
-# Weapons. `weapon_index` maps into PlayerController.WEAPONS.
-const BUSTER_STANDARD := "buster_standard"
-const BUSTER_RAPID := "buster_rapid"
-const BUSTER_SCATTER := "buster_scatter"
-const BUSTER_SIEGE := "buster_siege"
+# Weapons are defined in WeaponDatabase; these aliases keep the id spelled once.
+const BUSTER_STANDARD := WeaponDatabase.STANDARD
+const BUSTER_RAPID := WeaponDatabase.RAPID
+const BUSTER_SCATTER := WeaponDatabase.SCATTER
+const BUSTER_SIEGE := WeaponDatabase.SIEGE
 
 # Components. Each enemy archetype drops the material for its own weapon, so
 # what you fight is what you learn to build.
@@ -40,7 +70,7 @@ const SLOTS: Array[String] = ["head", "arms", "body", "legs", "buster"]
 ## Order used by the HUD strip and the consumable rows.
 const ORDER: Array[String] = [REPAIR_KIT, OVERCLOCK_CELL, FRAG_CHARGE]
 
-const WEAPON_ORDER: Array[String] = [BUSTER_STANDARD, BUSTER_RAPID, BUSTER_SCATTER, BUSTER_SIEGE]
+const WEAPON_ORDER: Array[String] = WeaponDatabase.ORDER
 
 const COMPONENT_ORDER: Array[String] = [
 	SCRAP_ALLOY, POWER_CELL, SERVO_MOTOR, RAPID_ACTUATOR,
@@ -105,57 +135,8 @@ const ITEMS := {
 		"credits": 0,
 	},
 
-	# ------------------------------------------------------------- weapons
-	BUSTER_STANDARD: {
-		"name": "STANDARD BUSTER",
-		"short": "STD",
-		"kind": "weapon",
-		"slot": "buster",
-		"weapon_index": 0,
-		"description": "Flexible arm cannon. Chargeable. Every Delver's first weapon.",
-		"color": "58d6ff",
-		"max_stack": 1,
-	},
-	BUSTER_RAPID: {
-		"name": "RAPID BUSTER",
-		"short": "RAPID",
-		"kind": "weapon",
-		"slot": "buster",
-		"weapon_index": 1,
-		"description": "Full-auto pressure at close and mid range.",
-		"color": "6cff7d",
-		"max_stack": 1,
-	},
-	BUSTER_SCATTER: {
-		"name": "SCATTER BUSTER",
-		"short": "SCTR",
-		"kind": "weapon",
-		"slot": "buster",
-		"weapon_index": 2,
-		"description": "Five-pellet crowd sweeper. Short range, big spread.",
-		"color": "ffba52",
-		"max_stack": 1,
-	},
-	BUSTER_SIEGE: {
-		"name": "SIEGE BUSTER",
-		"short": "SIEGE",
-		"kind": "weapon",
-		"slot": "buster",
-		"weapon_index": 3,
-		"description": "Long-range burst cannon on a heavy frame.",
-		"color": "ef5d69",
-		"max_stack": 1,
-	},
-
 	# ----------------------------------------------------------- equipment
-	# `stats` keys:
-	#   health / stamina  — flat additions to the maximums
-	#   speed / regen     — fractional bonuses (0.15 = +15%)
-	#   jump              — fractional jump HEIGHT bonus
-	#   backpack          — extra backpack slots
-	#   weapon_mod        — buster synergy, only active with that weapon:
-	#     weapon (index), slow_factor/slow_time, fire_rate (cooldown mult),
-	#     pellets (extra), stamina_cost (mult)
+	# See the STAT REFERENCE at the top of this file for what `stats` accepts.
 	"cryo_visor": {
 		"name": "CRYO VISOR",
 		"short": "CRYO-V",
@@ -362,11 +343,15 @@ const ITEMS := {
 	},
 }
 
+## Weapons are folded in from WeaponDatabase rather than restated here, so a
+## buster is described exactly once — in the table that also holds its damage.
 static func has(item_id: String) -> bool:
-	return ITEMS.has(item_id)
+	return ITEMS.has(item_id) or WeaponDatabase.has_weapon(item_id)
 
 static func get_item(item_id: String) -> Dictionary:
-	return ITEMS.get(item_id, {})
+	if ITEMS.has(item_id):
+		return ITEMS[item_id]
+	return WeaponDatabase.item_entry(item_id)
 
 static func display_name(item_id: String) -> String:
 	return str(get_item(item_id).get("name", item_id.to_upper()))
@@ -399,16 +384,13 @@ static func stats(item_id: String) -> Dictionary:
 	var block: Variant = get_item(item_id).get("stats", {})
 	return block if block is Dictionary else {}
 
-## PlayerController.WEAPONS index for a weapon item, -1 otherwise.
+## WeaponDatabase.ORDER index for a weapon item, -1 otherwise.
 static func weapon_index(item_id: String) -> int:
-	return int(get_item(item_id).get("weapon_index", -1))
+	return WeaponDatabase.index_of(item_id)
 
-## Weapon item id for a WEAPONS index, used to bank a run-found buster.
+## Weapon item id for a weapon index, used to bank a run-found buster.
 static func weapon_id_for_index(index: int) -> String:
-	for item_id in WEAPON_ORDER:
-		if weapon_index(item_id) == index:
-			return item_id
-	return BUSTER_STANDARD
+	return WeaponDatabase.id_at(index)
 
 ## Items that consume a backpack slot during a run (per distinct stack).
 static func uses_backpack(item_id: String) -> bool:

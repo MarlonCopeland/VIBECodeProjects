@@ -3,6 +3,9 @@
 > Forward-looking work — Steam release, Mega Man Legends art direction,
 > character customization, and the robot/invasion economy — lives in
 > [Roadmap.md](Roadmap.md). This document describes the slice as built.
+>
+> Changing a number, or adding a weapon, item, or enemy? Every gameplay value
+> lives in a data table, and [Tuning.md](Tuning.md) is the map to them.
 
 ## Pillars
 

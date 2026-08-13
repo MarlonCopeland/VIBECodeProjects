@@ -27,11 +27,10 @@ var _age := 0.0
 var _core: MeshInstance3D
 var _glow: OmniLight3D
 
-const COLORS: Array[Color] = [Color("58d6ff"), Color("6cff7d"), Color("ffba52"), Color("ef5d69")]
 const HOSTILE_COLOR := Color("ff4d3d")
 
 func _ready() -> void:
-	var color := HOSTILE_COLOR if hostile else COLORS[clampi(weapon_index, 0, COLORS.size() - 1)]
+	var color := HOSTILE_COLOR if hostile else WeaponDatabase.color(weapon_index)
 	var radius := 0.16 + 0.1 * charge_level
 	if hostile:
 		radius = 0.22

@@ -243,9 +243,13 @@ static func _populate(layout: Dictionary, rng: RandomNumberGenerator) -> void:
 			})
 		if bool(section["weapon_cache"]):
 			var spot := SectionLibrary.spawn_points("ring", 1, rng)[0]
+			# Which busters can turn up in a vault is a `cache` flag in
+			# WeaponDatabase, so adding a weapon can offer it here without
+			# touching the generator.
+			var cacheable := WeaponDatabase.cache_indices()
 			layout["loot"].append({
 				"cell": coord, "kind": "weapon",
-				"weapon_index": rng.randi_range(1, 3),
+				"weapon_index": cacheable[rng.randi_range(0, cacheable.size() - 1)],
 				"position": origin + Vector3(spot.x, 1.1, spot.y),
 			})
 

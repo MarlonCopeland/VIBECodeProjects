@@ -18,6 +18,7 @@ func _ready() -> void:
 	SaveManager.use_profile(TEST_PROFILE)
 	InputSettings.apply_all()
 
+	_test_tuning_tables()
 	_test_generator()
 	_test_lan_beacon()
 	_test_stash()
@@ -106,9 +107,9 @@ func _ready() -> void:
 	check(not is_instance_valid(shot) or shot.global_position.z < start_z, "projectile travels")
 
 	# A charged shot must hit harder than a tap.
-	var weapon: Dictionary = player.WEAPONS[0]
-	var tap_damage := float(weapon.damage) * float(player.CHARGE_DAMAGE[0])
-	var full_damage := float(weapon.damage) * float(player.CHARGE_DAMAGE[2])
+	var weapon: Dictionary = WeaponDatabase.stats(0)
+	var tap_damage := float(weapon.damage) * WeaponDatabase.CHARGE_DAMAGE[0]
+	var full_damage := float(weapon.damage) * WeaponDatabase.CHARGE_DAMAGE[2]
 	check(full_damage > tap_damage * 3.0, "charged shot out-damages tap")
 
 	# ---- generated loot --------------------------------------------------
@@ -267,7 +268,7 @@ func _ready() -> void:
 		"turrets count toward the purge objective")
 
 	var maverick: Node = dungeon.enemies_root.get_child(0)
-	check(maverick.VARIANTS.has(str(maverick.get("variant"))), "maverick carries a variant")
+	check(EnemyDatabase.has_archetype(str(maverick.get("variant"))), "maverick carries a real archetype")
 	maverick.apply_slow(2.0, 0.5)
 	check(maverick.slow_timer > 0.0, "cryo slow lands on a maverick")
 	check(maverick.has_method("_has_line_of_sight"), "mavericks test line of sight before engaging")
@@ -282,7 +283,8 @@ func _ready() -> void:
 	check(doomed != null, "sector holds a second maverick to salvage")
 	if doomed:
 		var variant_id := str(doomed.get("variant"))
-		var expected := str(dungeon.WRECK_DROPS.get(variant_id, ItemDatabase.SCRAP_ALLOY))
+		# The archetype's first drop entry is its guaranteed signature component.
+		var expected := str(EnemyDatabase.drops(variant_id)[0]["item"])
 		doomed.take_damage(5000.0)
 		await get_tree().physics_frame
 		var salvaged := false
@@ -475,6 +477,97 @@ func _ready() -> void:
 	get_tree().quit(0 if failures.is_empty() else 1)
 
 # --------------------------------------------------------------------------
+
+## TABLE INTEGRITY.
+##
+## The tuning tables are meant to be edited by hand — new weapons, new gear,
+## retuned drop rates. Every cross-reference between them is checked here so a
+## typo'd item id fails with a named assertion instead of quietly becoming a
+## drop that never lands or a recipe that can never be built.
+func _test_tuning_tables() -> void:
+	# ---- weapons ---------------------------------------------------------
+	var seen_colors := {}
+	for index in WeaponDatabase.count():
+		var weapon_id := WeaponDatabase.id_at(index)
+		var weapon := WeaponDatabase.stats(index)
+		for key in ["name", "short", "description", "color", "damage", "cooldown",
+				"stamina", "weight", "range", "spread", "speed", "auto", "chargeable"]:
+			check(weapon.has(key), "weapon %s declares '%s'" % [weapon_id, key])
+		check(float(weapon.get("cooldown", 0.0)) > 0.0, "weapon %s has a positive cooldown" % weapon_id)
+		check(int(weapon.get("spread", 0)) >= 1, "weapon %s fires at least one pellet" % weapon_id)
+		# A weapon that is both auto and chargeable can never reach its charge:
+		# the auto branch returns before charging is ever polled.
+		check(not (bool(weapon.get("auto", false)) and bool(weapon.get("chargeable", false))),
+			"weapon %s is not both auto and chargeable" % weapon_id)
+		# Colour is how a player tells whose shot is whose mid-fight.
+		var color := str(weapon.get("color", ""))
+		check(not seen_colors.has(color), "weapon %s has a colour of its own" % weapon_id)
+		seen_colors[color] = true
+		# The index is the wire format, so the round trip has to be exact.
+		check(WeaponDatabase.index_of(weapon_id) == index, "weapon %s round-trips its index" % weapon_id)
+		check(ItemDatabase.has(weapon_id), "weapon %s is a real item" % weapon_id)
+		check(ItemDatabase.slot(weapon_id) == "buster", "weapon %s occupies the buster slot" % weapon_id)
+		check(ItemDatabase.weapon_id_for_index(index) == weapon_id,
+			"weapon %s round-trips through ItemDatabase" % weapon_id)
+	check(not WeaponDatabase.cache_indices().is_empty(), "some weapon can appear as a world cache")
+	check(WeaponDatabase.CHARGE_DAMAGE.size() == 3 and WeaponDatabase.CHARGE_STAMINA.size() == 3,
+		"charge tables cover all three tiers")
+
+	# ---- equipment -------------------------------------------------------
+	for item_id in ItemDatabase.EQUIPMENT_ORDER:
+		check(ItemDatabase.has(item_id), "equipment %s exists" % item_id)
+		var slot_id := ItemDatabase.slot(item_id)
+		check(ItemDatabase.SLOTS.has(slot_id), "equipment %s sits in a real slot (%s)" % [item_id, slot_id])
+		check(slot_id != "buster", "equipment %s does not squat the weapon slot" % item_id)
+		var block := ItemDatabase.stats(item_id)
+		check(not block.is_empty(), "equipment %s actually does something" % item_id)
+		for key in block:
+			check(key in ["health", "stamina", "speed", "jump", "regen", "backpack", "weapon_mod"],
+				"equipment %s uses a known stat ('%s')" % [item_id, key])
+		if block.has("weapon_mod"):
+			var mod: Dictionary = block["weapon_mod"]
+			var target := int(mod.get("weapon", -1))
+			check(target >= 0 and target < WeaponDatabase.count(),
+				"equipment %s mods a weapon that exists" % item_id)
+		# Every piece must be reachable, or it is decoration in a data table.
+		check(CraftingDatabase.has_recipe(item_id), "equipment %s can be crafted" % item_id)
+
+	for item_id in ItemDatabase.COMPONENT_ORDER + ItemDatabase.ORDER:
+		check(ItemDatabase.has(item_id), "listed item %s exists" % item_id)
+
+	# ---- enemies ---------------------------------------------------------
+	var weight_total := 0.0
+	for archetype in EnemyDatabase.ARCHETYPES:
+		var entry: Dictionary = EnemyDatabase.ARCHETYPES[archetype]
+		check(EnemyDatabase.value(archetype, "health") > 0.0, "%s has health" % archetype)
+		check(str(entry.get("behavior", "")) in ["melee", "gunner", "turret", "boss"],
+			"%s has a behavior the enemy scripts implement" % archetype)
+		if str(entry.get("behavior", "")) == "gunner":
+			check(entry.has("hold_range"), "gunner %s declares its range band" % archetype)
+			check(not EnemyDatabase.shot(archetype).is_empty(), "gunner %s has a projectile" % archetype)
+		for award in EnemyDatabase.drops(archetype):
+			var dropped := str(award.get("item", ""))
+			check(ItemDatabase.has(dropped), "%s drops a real item (%s)" % [archetype, dropped])
+			var chance := float(award.get("chance", 1.0))
+			check(chance > 0.0 and chance <= 1.0, "%s drop %s has a usable chance" % [archetype, dropped])
+	for archetype in EnemyDatabase.SPAWNABLE:
+		check(EnemyDatabase.has_archetype(archetype), "spawnable %s is a real archetype" % archetype)
+		weight_total += EnemyDatabase.value(archetype, "spawn_weight")
+	check(weight_total > 0.0, "something can actually spawn")
+
+	# Every craftable component must be obtainable, or a recipe is a dead end.
+	var obtainable := {}
+	for archetype in EnemyDatabase.ARCHETYPES:
+		for award in EnemyDatabase.drops(archetype):
+			obtainable[str(award["item"])] = true
+	for item_id in CraftingDatabase.RECIPES:
+		check(ItemDatabase.has(item_id), "recipe output %s is a real item" % item_id)
+		for component_id in CraftingDatabase.components(item_id):
+			check(ItemDatabase.has(str(component_id)),
+				"recipe %s needs a real component (%s)" % [item_id, component_id])
+			check(obtainable.has(str(component_id)) or ItemDatabase.kind(str(component_id)) != "component",
+				"recipe %s needs %s, which something must drop" % [item_id, component_id])
+		check(CraftingDatabase.parts_cost(item_id) >= 0, "recipe %s has a sane parts cost" % item_id)
 
 ## The generator is pure data, so it can be checked without a scene. These are
 ## the invariants the whole run rests on: same seed means the same sector on

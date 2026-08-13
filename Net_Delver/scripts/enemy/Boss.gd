@@ -11,9 +11,9 @@ extends CharacterBody3D
 
 const SHOT_SCRIPT := preload("res://scripts/weapons/BusterShot.gd")
 
-const ARMOR_MULTIPLIER := 0.22
-const PHASE_TWO_AT := 0.62
-const PHASE_THREE_AT := 0.28
+## Health, contact damage, armour, phase thresholds, volley cadence, and the
+## drop table all live in EnemyDatabase.ARCHETYPES["guardian"].
+const ARCHETYPE := EnemyDatabase.GUARDIAN
 
 const ARMOR_COLOR := Color("2a2145")      # deep violet plate
 const TRIM_COLOR := Color("2fae6e")       # emerald trim
@@ -49,6 +49,8 @@ var _eyes: Array[MeshInstance3D] = []
 
 func _ready() -> void:
 	add_to_group("bosses")
+	max_health = EnemyDatabase.value(ARCHETYPE, "health", max_health)
+	contact_damage = EnemyDatabase.value(ARCHETYPE, "contact_damage", contact_damage)
 	health = max_health
 	_build_body()
 	move_target = global_position
@@ -256,7 +258,10 @@ func _physics_process(delta: float) -> void:
 
 	var to_target := move_target - global_position
 	to_target.y = 0.0
-	var speed := 3.4 + (1.6 if phase >= 2 else 0.0) + (1.8 if phase >= 3 else 0.0)
+	var speed := EnemyDatabase.value(ARCHETYPE, "speed", 3.4)
+	var bonuses: Array = EnemyDatabase.get_archetype(ARCHETYPE).get("phase_speed_bonus", [])
+	for index in mini(phase, bonuses.size()):
+		speed += float(bonuses[index])
 	if to_target.length() > 1.5:
 		velocity.x = to_target.normalized().x * speed
 		velocity.z = to_target.normalized().z * speed
@@ -292,10 +297,11 @@ func _animate_frame() -> void:
 		_jaw.rotation.x = maxf(0.0, sin(hover_phase * 2.0 * tempo)) * 0.35
 
 func _volley_interval() -> float:
-	match phase:
-		3: return randf_range(0.85, 1.35)
-		2: return randf_range(1.35, 2.0)
-		_: return randf_range(2.1, 2.9)
+	var intervals: Array = EnemyDatabase.get_archetype(ARCHETYPE).get("volley_interval", [])
+	if intervals.is_empty():
+		return randf_range(2.1, 2.9)
+	var band: Vector2 = intervals[clampi(phase - 1, 0, intervals.size() - 1)]
+	return randf_range(band.x, band.y)
 
 func _face(point: Vector3, delta: float) -> void:
 	var offset := point - global_position
@@ -341,17 +347,19 @@ func _nearest_player() -> Node3D:
 func take_damage(amount: float, weak_point := false) -> void:
 	if dead:
 		return
-	var applied := amount if weak_point else amount * ARMOR_MULTIPLIER
+	var armor := EnemyDatabase.value(ARCHETYPE, "armor_multiplier", 0.22)
+	var applied := amount if weak_point else amount * armor
 	health = maxf(0.0, health - applied)
 	hit_flash = 0.09
 	SynthAudio.play("weak" if weak_point else "hit", randf_range(0.9, 1.2), -11.0 if weak_point else -16.0)
 
+	# Phase 1 is full health; each threshold crossed opens the next set of vents.
 	var ratio := health / max_health
+	var thresholds: Array = EnemyDatabase.get_archetype(ARCHETYPE).get("phase_thresholds", [])
 	var next_phase := 1
-	if ratio <= PHASE_THREE_AT:
-		next_phase = 3
-	elif ratio <= PHASE_TWO_AT:
-		next_phase = 2
+	for threshold in thresholds:
+		if ratio <= float(threshold):
+			next_phase += 1
 	if next_phase != phase:
 		phase = next_phase
 		_refresh_weak_points()
