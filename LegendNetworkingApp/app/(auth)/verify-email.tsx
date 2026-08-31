@@ -2,8 +2,9 @@
 // Holding screen for authenticated-but-unverified users. Polls the session on
 // demand (after the user clicks the emailed link) and can resend the email.
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { View } from 'react-native';
+import * as Linking from 'expo-linking';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { Button } from '../../src/components/Button';
@@ -13,13 +14,33 @@ import { useTheme } from '../../src/theme/ThemeProvider';
 import { toAppError } from '../../src/lib/errors';
 
 export default function VerifyEmailScreen() {
-  const { user, refresh, resendVerification, signOut } = useAuth();
+  const { user, refresh, resendVerification, signOut, redeemAuthLink } = useAuth();
   const { spacing } = useTheme();
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [checking, setChecking] = useState(false);
   const [resending, setResending] = useState(false);
+
+  // Confirmation links land back here carrying a session. Redeem it so the
+  // user is verified on the spot instead of having to tap "I've verified".
+  useEffect(() => {
+    let cancelled = false;
+    const consume = async (url: string | null) => {
+      if (!url || cancelled) return;
+      try {
+        await redeemAuthLink(url);
+      } catch (e) {
+        if (!cancelled) setError(toAppError(e).message);
+      }
+    };
+    void Linking.getInitialURL().then(consume);
+    const sub = Linking.addEventListener('url', ({ url }) => void consume(url));
+    return () => {
+      cancelled = true;
+      sub.remove();
+    };
+  }, [redeemAuthLink]);
 
   const check = async () => {
     setError('');

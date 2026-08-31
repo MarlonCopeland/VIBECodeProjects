@@ -187,6 +187,13 @@ const auth: AuthApi = {
     await persist();
   },
 
+  async redeemAuthLink(_url: string): Promise<Session | null> {
+    // Demo mode never sends real emails, so there is no link to redeem. The
+    // reset screen falls back to "sign in and change it from Settings".
+    await load();
+    return null;
+  },
+
   async resendVerification(_email: string): Promise<void> {
     await load();
   },

@@ -62,6 +62,10 @@ export async function updatePassword(newPassword: string): Promise<void> {
   return backend.auth.updatePassword(newPassword);
 }
 
+export async function redeemAuthLink(url: string): Promise<Session | null> {
+  return backend.auth.redeemAuthLink(url);
+}
+
 export async function resendVerification(email: string): Promise<void> {
   return backend.auth.resendVerification(email);
 }

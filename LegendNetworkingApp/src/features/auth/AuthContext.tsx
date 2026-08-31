@@ -28,6 +28,8 @@ interface AuthContextValue {
   signInWithMagicLink: (email: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
+  /** Consume a recovery/confirmation deep link; returns true if it signed us in. */
+  redeemAuthLink: (url: string) => Promise<boolean>;
   resendVerification: () => Promise<void>;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -107,6 +109,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus('unauthenticated');
   }, []);
 
+  const redeemAuthLink = useCallback(async (url: string) => {
+    const session = await authService.redeemAuthLink(url);
+    if (session?.user) {
+      setUserState(session.user);
+      setStatus('authenticated');
+      return true;
+    }
+    return false;
+  }, []);
+
   const value = useMemo<AuthContextValue>(
     () => ({
       status,
@@ -118,12 +130,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithMagicLink: authService.signInWithMagicLink,
       sendPasswordReset: authService.sendPasswordReset,
       updatePassword: authService.updatePassword,
+      redeemAuthLink,
       resendVerification,
       refresh,
       signOut,
       setUser: setUserState,
     }),
-    [status, user, signIn, signUp, signInWithProvider, refresh, resendVerification, signOut],
+    [
+      status,
+      user,
+      signIn,
+      signUp,
+      signInWithProvider,
+      refresh,
+      resendVerification,
+      signOut,
+      redeemAuthLink,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

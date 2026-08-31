@@ -1,14 +1,40 @@
-# Minimal Supabase CLI project config for the UnjadedDigital template.
-# Run `supabase init` in your own project to generate the full file; this is a
-# starting point. Docs: https://supabase.com/docs/guides/cli/config
+# Supabase CLI project config for Legend.
+#
+# `supabase config push` syncs this [auth] block to the linked project, so it
+# is the source of truth for redirect handling. Keep it in sync with what the
+# dashboard shows — anything omitted here reverts to the CLI's default on the
+# next push.
+# Docs: https://supabase.com/docs/guides/cli/config
 
 project_id = "legend"
 
 [auth]
 enable_signup = true
 
-# Require users to confirm their email before a session is issued.
+# Where Supabase sends people when an email link has no explicit (allow-listed)
+# redirect. It defaulted to http://localhost:3000, which is why confirmation
+# emails were dead-ending in a browser: Legend is a mobile app, so the fallback
+# has to be the app's own scheme.
+site_url = "legend://"
+
+# Every redirect the app actually asks for must be allow-listed, or Supabase
+# silently swaps it for site_url:
+#   legend://**  - release / dev-client builds (scheme from app.config.js)
+#   exp://**     - Expo Go, whose tunnel host changes on every restart
+#   http://localhost:8081/** - the Expo web build
+# Trim the exp:// and localhost entries before going public; they exist so a
+# dev tunnel can complete the same flows.
+additional_redirect_urls = [
+  "legend://**",
+  "exp://**",
+  "http://localhost:8081/**",
+]
+
 [auth.email]
 enable_signup = true
 double_confirm_changes = true
+# Require users to confirm their email before a session is issued.
 enable_confirmations = true
+# Pinned to the project's existing value. `config push` sends the whole [auth]
+# block, so anything left unset here silently reverts to the CLI default (6).
+otp_length = 8

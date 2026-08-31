@@ -84,6 +84,13 @@ export interface AuthApi {
 
   sendPasswordReset(email: string): Promise<void>;
   updatePassword(newPassword: string): Promise<void>;
+  /**
+   * Consume an auth redirect deep link (password recovery, email
+   * confirmation) and establish whatever session it carries. Returns null
+   * when the link carries no credentials. Throws when the link is expired or
+   * malformed, so callers can show the user a real reason.
+   */
+  redeemAuthLink(url: string): Promise<Session | null>;
 
   resendVerification(email: string): Promise<void>;
 

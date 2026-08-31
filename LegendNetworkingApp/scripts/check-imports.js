@@ -83,6 +83,22 @@ for (const d of dirs) {
   }
 }
 
+// Route files are never imported by anything — Expo Router discovers them by
+// path — so the import scan above cannot see them. An untracked route simply
+// vanishes from the EAS build, taking its screen with it (exactly how the
+// password-reset screen went missing). Check them directly.
+function checkRoutesTracked() {
+  const appDir = path.join(root, 'app');
+  if (!fs.existsSync(appDir)) return;
+  for (const file of walk(appDir)) {
+    const rel = path.relative(root, file).split(path.sep).join('/');
+    if (!tracked.has(rel)) {
+      problems.push('UNTRACKED ' + rel + '  (route file not in git - it will be MISSING from the build)');
+    }
+  }
+}
+checkRoutesTracked();
+
 if (problems.length === 0) {
   console.log('OK: every relative import resolves, is tracked by git, and matches on-disk casing.');
 } else {

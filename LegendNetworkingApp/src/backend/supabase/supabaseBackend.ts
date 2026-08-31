@@ -39,6 +39,32 @@ WebBrowser.maybeCompleteAuthSession();
 
 const AVATAR_BUCKET = 'avatars';
 
+/**
+ * Pull auth params out of a redirect deep link. Supabase puts them in the URL
+ * FRAGMENT for the implicit flow (`legend://reset-password#access_token=…`)
+ * and in the QUERY for PKCE, so both have to be read — and `URL` in Hermes
+ * does not expose a usable `hash`/`searchParams` pair for custom schemes,
+ * hence the manual split.
+ */
+function parseAuthLinkParams(url: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const collect = (segment: string) => {
+    for (const pair of segment.split('&')) {
+      if (!pair) continue;
+      const index = pair.indexOf('=');
+      const key = index === -1 ? pair : pair.slice(0, index);
+      const value = index === -1 ? '' : pair.slice(index + 1);
+      if (key) out[decodeURIComponent(key)] = value;
+    }
+  };
+  const hashIndex = url.indexOf('#');
+  const withoutHash = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  if (hashIndex !== -1) collect(url.slice(hashIndex + 1));
+  const queryIndex = withoutHash.indexOf('?');
+  if (queryIndex !== -1) collect(withoutHash.slice(queryIndex + 1));
+  return out;
+}
+
 /** Build an AppUser from a Supabase auth user + optional profile row. */
 function toAppUser(u: SbUser, profile?: Record<string, unknown> | null): AppUser {
   const meta = (u.user_metadata ?? {}) as Record<string, unknown>;
@@ -179,6 +205,45 @@ const auth: AuthApi = {
     const supabase = getSupabase();
     const { error } = await supabase.auth.updateUser({ password: newPassword });
     if (error) throw error;
+  },
+
+  async redeemAuthLink(url: string): Promise<Session | null> {
+    const supabase = getSupabase();
+    const params = parseAuthLinkParams(url);
+
+    // Supabase reports failures (expired/used link) as query params on the
+    // redirect rather than an HTTP error, so surface them as real errors.
+    const failure = params.error_description || params.error;
+    if (failure) throw new Error(decodeURIComponent(failure.replace(/\+/g, ' ')));
+
+    // Implicit flow: the redirect fragment carries the tokens directly.
+    if (params.access_token && params.refresh_token) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+      });
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    // PKCE flow: exchange the one-time code.
+    if (params.code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(params.code);
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    // Newer email templates can hand back a hashed OTP instead.
+    if (params.token_hash && params.type) {
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: params.token_hash,
+        type: params.type as 'recovery' | 'signup' | 'email' | 'invite' | 'magiclink',
+      });
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    return null;
   },
 
   async resendVerification(email: string): Promise<void> {

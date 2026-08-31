@@ -257,9 +257,8 @@ user can pin/exclude to override.
   - [x] Unit tests (`vitest`) against the real SQL: HLC ordering, contact
         CRUD + child-table merge + tombstone-hides-from-list, interaction
         log, circle pin/exclude diffing — 28 tests, run with `npm test`
-        (needs Node 22+ for the built-in `node:sqlite` test driver; the app
-        itself still targets Node 18–20, per Expo's own constraint — these
-        are decoupled, tests never invoke the Expo CLI)
+        (needs Node 22+ for the built-in `node:sqlite` test driver — which is
+        now the project-wide floor, see Ground rules)
   - [x] Verified: `npm run typecheck` clean, `npx expo export --platform web`
         bundles without error (expo-sqlite resolves fine for web)
   - [ ] Not yet verified: actually opening the app (device or browser) and
@@ -346,7 +345,11 @@ user can pin/exclude to override.
   rarity colors only via `TIER_COLORS`.
 - New routes live under `app/(app)/…` and inherit the auth gate for free.
 - After each phase: `npm run typecheck` must pass; update this file's boxes.
-- Node 18–20 only (`nvm use`) — Node 22+ breaks Expo SDK 52's config loader.
+- **Node 22+ required** (`nvm use` reads `.nvmrc` = 22). Verified 2026-08-12:
+  Expo SDK 54 runs fine on 22 and 24, and `node:sqlite` (needed by
+  `sqliteContacts.test.ts`) only exists on 22+, so Node 20 silently skips a
+  whole test file. The old "Node 18–20 only" rule was an SDK 52 constraint and
+  no longer applies. `engine-strict=true` in `.npmrc` enforces the floor.
 
 
 ## Added By Marlon (UX round 1) — implemented 2026-07-30
@@ -602,6 +605,7 @@ user can pin/exclude to override.
 
 ### For the reviewer (when we go external)
 
-- App uses the **local demo backend** in the TestFlight build, so sign-up works
-  offline with any email — no demo credentials needed. (If a Supabase build is
-  submitted later, provide review credentials in App Store Connect notes.)
+- The TestFlight build runs on the **live Supabase backend** (changed
+  2026-08-11), so sign-up needs a real email and email confirmation is ON.
+  Provide App Store Connect / Play Console reviewers with a working test
+  account — they cannot get past the login screen otherwise.
