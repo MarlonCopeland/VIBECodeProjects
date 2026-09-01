@@ -3,7 +3,7 @@
 
 import { useState } from 'react';
 import { View } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { TextField } from '../../src/components/TextField';
@@ -17,6 +17,7 @@ import { toAppError } from '../../src/lib/errors';
 
 export default function SignupScreen() {
   const { signUp } = useAuth();
+  const router = useRouter();
   const { spacing } = useTheme();
 
   const [displayName, setDisplayName] = useState('');
@@ -33,7 +34,9 @@ export default function SignupScreen() {
     try {
       const { needsEmailConfirmation } = await signUp({ displayName, email, password });
       if (needsEmailConfirmation) {
-        setNotice('Check your inbox to confirm your email, then sign in.');
+        // Hand off to the code screen rather than dead-ending on a banner: the
+        // emailed code can be read on any device, so the user finishes here.
+        router.push({ pathname: '/(auth)/verify-email', params: { email: email.trim() } });
       }
       // Gate handles navigation once a session exists.
     } catch (e) {

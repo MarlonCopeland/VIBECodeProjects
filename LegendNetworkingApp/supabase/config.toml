@@ -38,3 +38,15 @@ enable_confirmations = true
 # Pinned to the project's existing value. `config push` sends the whole [auth]
 # block, so anything left unset here silently reverts to the CLI default (6).
 otp_length = 8
+
+# Email templates. Both lead with {{ .Token }} (an 8-digit code) rather than a
+# link, because signing up on one device and reading email on another is the
+# normal case — a link only works on the device that opens it, which stranded
+# the emulator/TestFlight flow. The link is kept as a same-device shortcut.
+[auth.email.template.confirmation]
+subject = "Confirm your Legend account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Legend password"
+content_path = "./supabase/templates/recovery.html"

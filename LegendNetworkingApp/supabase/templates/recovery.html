@@ -1,0 +1,19 @@
+<!-- Legend — password reset. Same reasoning as confirmation.html: the code
+     works from any device, the link only works on the one that opens it. -->
+<div style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;max-width:480px;margin:0 auto;padding:32px 24px;color:#11161d;">
+  <h1 style="font-size:22px;margin:0 0 8px;">Reset your password</h1>
+  <p style="margin:0 0 24px;color:#5b6472;">Enter this code in Legend, then choose a new password.</p>
+
+  <div style="background:#0B0D12;border-radius:12px;padding:24px;text-align:center;margin-bottom:24px;">
+    <div style="font-size:34px;letter-spacing:10px;font-weight:700;color:#ffffff;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;">{{ .Token }}</div>
+  </div>
+
+  <p style="margin:0 0 24px;color:#5b6472;font-size:14px;">
+    The code expires in one hour and can only be used once. If you didn't ask to reset
+    your password, ignore this email — your password stays unchanged.
+  </p>
+
+  <p style="margin:0;color:#8b95a5;font-size:13px;">
+    On the same device? <a href="{{ .ConfirmationURL }}" style="color:#4C8BF5;">Reset with one tap instead</a>.
+  </p>
+</div>

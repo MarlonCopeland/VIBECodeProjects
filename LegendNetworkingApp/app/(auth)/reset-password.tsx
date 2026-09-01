@@ -1,17 +1,22 @@
 // app/(auth)/reset-password.tsx
-// The other half of "Forgot password". `sendPasswordReset` has always pointed
-// its redirect at /reset-password, but the route never existed — so the emailed
-// link opened the app onto nothing. This screen redeems the recovery link,
-// which signs the user in just long enough to set a new password.
+// Password reset by CODE, with the emailed link kept as a same-device shortcut.
 //
-// The root gate deliberately exempts this route: a recovery link produces a
-// real authenticated session, and without the exemption the gate would bounce
-// straight to the tabs before the new password could be typed.
+// Two ways in:
+//   1. Arrived from "Forgot password" with ?email= — enter the emailed code,
+//      then the new password. Works when the email is read on another device,
+//      which is the normal case.
+//   2. Tapped the emailed link on this device — the link carries a session, so
+//      the code step is skipped entirely.
+//
+// The root gate exempts this route: redeeming either a code or a link produces
+// a real session, and without the exemption the gate would fling the user into
+// the tabs before they could set a password.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { View } from 'react-native';
 import * as Linking from 'expo-linking';
-import { useRouter } from 'expo-router';
+import * as Clipboard from 'expo-clipboard';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { TextField } from '../../src/components/TextField';
@@ -21,79 +26,105 @@ import { useAuth } from '../../src/features/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { toAppError } from '../../src/lib/errors';
 
-type Phase = 'redeeming' | 'ready' | 'invalid' | 'done';
+type Phase = 'checking' | 'code' | 'password' | 'invalid' | 'done';
 
 export default function ResetPasswordScreen() {
-  const { redeemAuthLink, updatePassword, status, signOut } = useAuth();
+  const { redeemAuthLink, verifyEmailCode, updatePassword, status, signOut } = useAuth();
   const { spacing } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
+  const email = (params.email ?? '').trim();
 
-  const [phase, setPhase] = useState<Phase>('redeeming');
+  const [phase, setPhase] = useState<Phase>('checking');
   const [error, setError] = useState('');
+  const [code, setCode] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
-  const [saving, setSaving] = useState(false);
-  const redeemed = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const settled = useRef(false);
 
-  const consume = useCallback(
+  const consumeLink = useCallback(
     async (url: string | null) => {
-      if (redeemed.current) return;
-      redeemed.current = true;
+      if (settled.current) return;
       try {
         if (url && (await redeemAuthLink(url))) {
-          setPhase('ready');
+          settled.current = true;
+          setPhase('password');
           return;
         }
-        // No credentials in the link. An already-live session (the user tapped
-        // the link, got signed in, and came back) is still good enough to set
-        // a password; anything else means the link was stale.
-        setPhase(status === 'authenticated' ? 'ready' : 'invalid');
       } catch (e) {
+        settled.current = true;
         setError(toAppError(e).message);
         setPhase('invalid');
+        return;
       }
+      // No link session. An existing one is still good enough to set a
+      // password; otherwise fall back to asking for the emailed code.
+      settled.current = true;
+      setPhase(status === 'authenticated' ? 'password' : email ? 'code' : 'invalid');
     },
-    [redeemAuthLink, status],
+    [redeemAuthLink, status, email],
   );
 
   useEffect(() => {
     let cancelled = false;
     void (async () => {
       const initial = await Linking.getInitialURL();
-      if (!cancelled) await consume(initial);
+      if (!cancelled) await consumeLink(initial);
     })();
-    // Cold start hands the URL to getInitialURL; a warm app gets an event.
     const sub = Linking.addEventListener('url', ({ url }) => {
-      redeemed.current = false;
-      void consume(url);
+      settled.current = false;
+      void consumeLink(url);
     });
     return () => {
       cancelled = true;
       sub.remove();
     };
-  }, [consume]);
+  }, [consumeLink]);
 
-  const submit = async () => {
+  const submitCode = async (value?: string) => {
+    const entered = (value ?? code).trim();
+    if (!entered) return;
+    setError('');
+    setBusy(true);
+    try {
+      await verifyEmailCode(email, entered, 'recovery');
+      setPhase('password');
+    } catch (e) {
+      setError(toAppError(e).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const pasteCode = async () => {
+    const text = (await Clipboard.getStringAsync()).replace(/[^0-9A-Za-z]/g, '');
+    if (!text) return;
+    setCode(text);
+    void submitCode(text);
+  };
+
+  const savePassword = async () => {
     setError('');
     if (password !== confirm) {
       setError('Both passwords must match.');
       return;
     }
-    setSaving(true);
+    setBusy(true);
     try {
       await updatePassword(password);
       setPhase('done');
     } catch (e) {
       setError(toAppError(e).message);
     } finally {
-      setSaving(false);
+      setBusy(false);
     }
   };
 
-  if (phase === 'redeeming') {
+  if (phase === 'checking') {
     return (
       <Screen center>
-        <Text tone="muted">Checking your reset link…</Text>
+        <Text tone="muted">Checking your reset request…</Text>
       </Screen>
     );
   }
@@ -102,20 +133,16 @@ export default function ResetPasswordScreen() {
     return (
       <Screen scroll center>
         <View style={{ marginBottom: spacing.xl }}>
-          <Text variant="title" weight="bold">Link expired</Text>
+          <Text variant="title" weight="bold">Reset code expired</Text>
           <Text tone="muted" style={{ marginTop: spacing.xs }}>
-            Password reset links can only be used once, and they expire after a short
-            while. Request a fresh one and open it on this device.
+            Reset codes and links are single-use and expire after an hour. Request a
+            fresh one and you can finish on this device.
           </Text>
         </View>
         <Banner kind="error" message={error} />
-        <Button title="Send a new link" onPress={() => router.replace('/(auth)/forgot-password')} />
+        <Button title="Send a new code" onPress={() => router.replace('/(auth)/forgot-password')} />
         <View style={{ marginTop: spacing.md }}>
-          <Button
-            title="Back to sign in"
-            variant="ghost"
-            onPress={() => router.replace('/(auth)/login')}
-          />
+          <Button title="Back to sign in" variant="ghost" onPress={() => router.replace('/(auth)/login')} />
         </View>
       </Screen>
     );
@@ -127,7 +154,7 @@ export default function ResetPasswordScreen() {
         <View style={{ marginBottom: spacing.xl }}>
           <Text variant="title" weight="bold">Password updated</Text>
           <Text tone="muted" style={{ marginTop: spacing.xs }}>
-            You&apos;re signed in with your new password.
+            You are signed in with your new password.
           </Text>
         </View>
         <Button title="Continue to Legend" onPress={() => router.replace('/(app)/(tabs)')} />
@@ -144,12 +171,51 @@ export default function ResetPasswordScreen() {
     );
   }
 
+  if (phase === 'code') {
+    return (
+      <Screen scroll center>
+        <View style={{ marginBottom: spacing.xl }}>
+          <Text variant="title" weight="bold">Enter your reset code</Text>
+          <Text tone="muted" style={{ marginTop: spacing.xs }}>
+            {'We sent a code to ' + email + '. You can read it on any device.'}
+          </Text>
+        </View>
+
+        <Banner kind="error" message={error} />
+
+        <TextField
+          label="Reset code"
+          value={code}
+          onChangeText={setCode}
+          keyboardType="number-pad"
+          autoCapitalize="none"
+          autoComplete="one-time-code"
+          textContentType="oneTimeCode"
+          placeholder="12345678"
+          maxLength={10}
+        />
+
+        <Button title="Continue" onPress={() => void submitCode()} loading={busy} disabled={!code.trim()} />
+        <View style={{ marginTop: spacing.sm }}>
+          <Button title="Paste code" variant="secondary" onPress={() => void pasteCode()} />
+        </View>
+        <View style={{ marginTop: spacing.xl }}>
+          <Button
+            title="Send a new code"
+            variant="ghost"
+            onPress={() => router.replace('/(auth)/forgot-password')}
+          />
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen scroll center>
       <View style={{ marginBottom: spacing.xl }}>
         <Text variant="title" weight="bold">Choose a new password</Text>
         <Text tone="muted" style={{ marginTop: spacing.xs }}>
-          Pick something you haven&apos;t used before.
+          Pick something you have not used before.
         </Text>
       </View>
 
@@ -159,7 +225,7 @@ export default function ResetPasswordScreen() {
         label="New password"
         value={password}
         onChangeText={setPassword}
-        secureTextEntry
+        secure
         autoCapitalize="none"
         autoComplete="new-password"
         placeholder="At least 8 characters"
@@ -168,7 +234,7 @@ export default function ResetPasswordScreen() {
         label="Confirm new password"
         value={confirm}
         onChangeText={setConfirm}
-        secureTextEntry
+        secure
         autoCapitalize="none"
         autoComplete="new-password"
         placeholder="Repeat it"
@@ -176,16 +242,12 @@ export default function ResetPasswordScreen() {
 
       <Button
         title="Save new password"
-        onPress={submit}
-        loading={saving}
+        onPress={() => void savePassword()}
+        loading={busy}
         disabled={!password || !confirm}
       />
       <View style={{ marginTop: spacing.md }}>
-        <Button
-          title="Cancel"
-          variant="ghost"
-          onPress={() => router.replace('/(auth)/login')}
-        />
+        <Button title="Cancel" variant="ghost" onPress={() => router.replace('/(auth)/login')} />
       </View>
     </Screen>
   );

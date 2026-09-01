@@ -21,6 +21,7 @@ import { getSupabase } from './client';
 import { localContacts } from '../local/localContacts';
 import type {
   AppUser,
+  EmailOtpKind,
   AuthApi,
   AuthChangeCallback,
   Backend,
@@ -244,6 +245,31 @@ const auth: AuthApi = {
     }
 
     return null;
+  },
+
+  async verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session> {
+    const supabase = getSupabase();
+    const code = token.replace(/[^0-9A-Za-z]/g, '');
+    // 'signup' is the type Supabase mints for confirmation codes, but projects
+    // on the newer email flow issue 'email' instead. Try the specific one and
+    // fall back, rather than telling the user a valid code is invalid.
+    const attempts: string[] = kind === 'signup' ? ['signup', 'email'] : ['recovery'];
+    let lastError: Error | null = null;
+    for (const type of attempts) {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code,
+        type: type as 'signup' | 'email' | 'recovery',
+      });
+      if (!error) {
+        const session = await sessionFromSb(data.session);
+        if (session) return session;
+        lastError = new Error('That code was accepted but no session came back. Try signing in.');
+        break;
+      }
+      lastError = new Error(error.message);
+    }
+    throw lastError ?? new Error('Could not verify that code.');
   },
 
   async resendVerification(email: string): Promise<void> {

@@ -11,6 +11,7 @@ import { storage } from '../../lib/storage';
 import { localContacts } from './localContacts';
 import type {
   AppUser,
+  EmailOtpKind,
   AuthApi,
   AuthChangeCallback,
   Backend,
@@ -192,6 +193,12 @@ const auth: AuthApi = {
     // reset screen falls back to "sign in and change it from Settings".
     await load();
     return null;
+  },
+
+  async verifyEmailOtp(_email: string, _token: string, _kind: EmailOtpKind): Promise<Session> {
+    // The demo backend never sends email, so there is no code to verify.
+    await load();
+    throw new Error('Email codes are not used by the offline demo backend.');
   },
 
   async resendVerification(_email: string): Promise<void> {

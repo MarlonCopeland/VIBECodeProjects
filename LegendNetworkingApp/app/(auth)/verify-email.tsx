@@ -1,12 +1,22 @@
 // app/(auth)/verify-email.tsx
-// Holding screen for authenticated-but-unverified users. Polls the session on
-// demand (after the user clicks the emailed link) and can resend the email.
+// Email confirmation by CODE, not link.
+//
+// The link-only flow stranded the common case: sign up on one device (emulator,
+// a fresh TestFlight install), read email on your phone, tap the link — and it
+// opens on the phone while the device you actually signed up on sits waiting
+// forever. A code is device-agnostic: read it anywhere, type it here.
+//
+// The deep link still works when it happens to land on this device, so the
+// listener stays as a fast path.
 
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import * as Linking from 'expo-linking';
+import * as Clipboard from 'expo-clipboard';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
+import { TextField } from '../../src/components/TextField';
 import { Button } from '../../src/components/Button';
 import { Banner } from '../../src/components/Banner';
 import { useAuth } from '../../src/features/auth/AuthContext';
@@ -14,16 +24,22 @@ import { useTheme } from '../../src/theme/ThemeProvider';
 import { toAppError } from '../../src/lib/errors';
 
 export default function VerifyEmailScreen() {
-  const { user, refresh, resendVerification, signOut, redeemAuthLink } = useAuth();
+  const { user, refresh, resendVerification, signOut, redeemAuthLink, verifyEmailCode } = useAuth();
   const { spacing } = useTheme();
+  const router = useRouter();
+  const params = useLocalSearchParams<{ email?: string }>();
 
+  // Signed-up-but-not-signed-in has no user yet, so the address arrives as a
+  // route param; an already-signed-in unverified user has it on the session.
+  const email = (params.email ?? user?.email ?? '').trim();
+
+  const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [checking, setChecking] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
 
-  // Confirmation links land back here carrying a session. Redeem it so the
-  // user is verified on the spot instead of having to tap "I've verified".
+  // Fast path: the link landed on this device after all.
   useEffect(() => {
     let cancelled = false;
     const consume = async (url: string | null) => {
@@ -42,19 +58,27 @@ export default function VerifyEmailScreen() {
     };
   }, [redeemAuthLink]);
 
-  const check = async () => {
+  const submit = async (value?: string) => {
+    const entered = (value ?? code).trim();
+    if (!entered) return;
     setError('');
     setNotice('');
-    setChecking(true);
+    setVerifying(true);
     try {
-      await refresh();
-      // If verified, the root gate routes onward automatically.
-      setNotice('Not verified yet. Click the link in your email, then try again.');
+      await verifyEmailCode(email, entered, 'signup');
+      // The root gate takes it from here once a session exists.
     } catch (e) {
       setError(toAppError(e).message);
     } finally {
-      setChecking(false);
+      setVerifying(false);
     }
+  };
+
+  const paste = async () => {
+    const text = (await Clipboard.getStringAsync()).replace(/[^0-9A-Za-z]/g, '');
+    if (!text) return;
+    setCode(text);
+    void submit(text);
   };
 
   const resend = async () => {
@@ -62,8 +86,8 @@ export default function VerifyEmailScreen() {
     setNotice('');
     setResending(true);
     try {
-      await resendVerification();
-      setNotice('Verification email sent.');
+      await resendVerification(email);
+      setNotice('Sent. Check your inbox for a new code.');
     } catch (e) {
       setError(toAppError(e).message);
     } finally {
@@ -72,25 +96,52 @@ export default function VerifyEmailScreen() {
   };
 
   return (
-    <Screen center>
+    <Screen scroll center>
       <View style={{ marginBottom: spacing.xl }}>
-        <Text variant="title" weight="bold">
-          Verify your email
-        </Text>
+        <Text variant="title" weight="bold">Confirm your email</Text>
         <Text tone="muted" style={{ marginTop: spacing.sm }}>
-          {`We sent a confirmation link to ${user?.email ?? 'your email'}. Confirm it to continue.`}
+          {email
+            ? `We sent a code to ${email}. Enter it below — you can read it on any device.`
+            : 'Enter the code from your confirmation email.'}
         </Text>
       </View>
 
       <Banner kind="error" message={error} />
       <Banner kind="info" message={notice} />
 
-      <Button title="I've verified — continue" onPress={check} loading={checking} />
-      <View style={{ marginTop: spacing.md }}>
-        <Button title="Resend email" variant="secondary" onPress={resend} loading={resending} />
+      <TextField
+        label="Confirmation code"
+        value={code}
+        onChangeText={setCode}
+        keyboardType="number-pad"
+        autoCapitalize="none"
+        autoComplete="one-time-code"
+        textContentType="oneTimeCode"
+        placeholder="12345678"
+        maxLength={10}
+      />
+
+      <Button
+        title="Confirm email"
+        onPress={() => void submit()}
+        loading={verifying}
+        disabled={!code.trim()}
+      />
+      <View style={{ marginTop: spacing.sm }}>
+        <Button title="Paste code" variant="secondary" onPress={() => void paste()} />
       </View>
-      <View style={{ marginTop: spacing.md }}>
-        <Button title="Sign out" variant="ghost" onPress={() => void signOut()} />
+
+      <View style={{ marginTop: spacing.xl, gap: spacing.sm }}>
+        <Button title="Resend code" variant="ghost" onPress={() => void resend()} loading={resending} />
+        <Button title="I already confirmed — continue" variant="ghost" onPress={() => void refresh()} />
+        <Button
+          title={user ? 'Sign out' : 'Back to sign in'}
+          variant="ghost"
+          onPress={() => {
+            if (user) void signOut();
+            else router.replace('/(auth)/login');
+          }}
+        />
       </View>
     </Screen>
   );
