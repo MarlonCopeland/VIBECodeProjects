@@ -317,6 +317,78 @@ user can pin/exclude to override.
       `SqlDriver` interface for real on-device SQLite; mobile-only modules
       (`expo-contacts`, `expo-sms`) simply aren't wired up there
 
+### Phase 9 — Momentum: score, leaderboards & lootbox-lite
+
+**Goal:** give the user a reason to open Legend *daily*. Legend already grades
+each relationship; this phase adds a **user-level** score computed from the
+same interaction log, a leaderboard to compare it against others, and a
+low-stakes variable reward for keeping a streak. Habit loop, not a casino.
+
+> **Hard constraint — zero-knowledge boundary.** Per [Ground
+> rules](#ground-rules) and `SYNC_DESIGN.md`, nothing readable about a user's
+> network may be written server-side. A leaderboard therefore uploads **only
+> opaque aggregates**: one integer score, a streak count, and a user-chosen
+> handle. Never contact names, per-contact counts, premises, or event names.
+> Leaderboard participation is **opt-in, default OFF**, and the settings row
+> must spell out the exact fields that leave the device.
+
+- [ ] **9.1 Momentum score** — pure math in
+      `src/features/momentum/scoring.ts`, mirroring `grading.ts` (computed at
+      read time, table-tested with vitest, no `Math.random()` anywhere).
+  - Same 45-day half-life decay as grading, so the two never disagree.
+  - Daily points = each logged interaction's grading weight
+    (`visit 15, call 10, premise 8, text 5, email 4, note 2`), **capped at 50
+    pts/day** so a CSV import or a 30-person bulk-SMS blast can't farm it.
+  - Bonuses: `+10` **revival** (first interaction with a contact whose
+    freshness > 45 days), `+5` new contact added *with a premise filled in*
+    (premise-less adds score 0 — quality gate, not volume), `+15` finishing a
+    circle call list.
+  - Exposes `momentum` (decayed trailing-30-day sum), `streak` (consecutive
+    days with ≥1 interaction), `longestStreak`. Only `lastActiveDay` +
+    `longestStreak` are persisted; everything else is derived.
+- [ ] **9.2 Momentum UI** — score + streak flame in the Me tab header with a
+      "what moves this" explainer, and a weekly recap card (interactions
+      logged, contacts revived, grade tier upgrades).
+  - **Never nag:** no red badges, no loss-framing ("your streak dies in 2
+    hours!") pushes. At most one optional daily reminder at a user-set time.
+- [ ] **9.3 Leaderboards** — new `leaderboards` feature flag
+      (`src/config/features.ts` + `app.config.js` + `eas.json`, same pattern
+      as `payments`/`sync`), default **off** until 9.1–9.2 ship.
+  - Migration `0006_leaderboards.sql`: `leaderboard_entries`
+    (`user_id` PK, `handle`, `momentum`, `streak`, `longest_streak`,
+    `updated_at`); RLS lets a user write only their own row. Reads go through
+    a `leaderboard_top(scope, limit)` SECURITY DEFINER function returning
+    **handle + scores only** — never `user_id` or email.
+  - Scopes: **Global** top 100 (weekly window + an all-time column) and
+    **Friends** via a share code — you paste someone's code and the two rows
+    link. No contact upload, ever; the graph never leaves the device.
+  - Anti-cheat is best-effort **by design** (the client computes the score):
+    the server clamps to a plausible daily max, and the blast radius is a
+    vanity list. Say that in the copy instead of pretending otherwise.
+  - Local backend (`APP_BACKEND=local`): honest "local only" empty state, no
+    fabricated rivals.
+- [ ] **9.4 Lootbox-lite** — `src/features/momentum/crates.ts`; **cosmetics
+      only, earned only, never purchasable.**
+  - Crates drop at streak milestones (3 / 7 / 14 / 30 days) and with the
+    weekly recap. Because they can't be bought and contain no gameplay or
+    currency, this stays clear of App Store 3.1.1 / Play's paid random-item
+    odds rules and the loot-box legislation surface. **Keep it that way** — the
+    moment a crate is purchasable this becomes a compliance project.
+  - Contents: rarity palettes (reusing the existing palette-store inventory),
+    contact-card frames, streak badges, alternate app icons.
+  - **Odds are published in-app**, visible *before* opening — the honest
+    version of the mechanic, and what the store guidelines want anyway.
+  - Pity counter guarantees an unowned item every N crates; once everything
+    is owned, crates convert to palette-store credit.
+  - ⚠️ **Decide before wiring:** keep the earned pool *disjoint* from the paid
+    IAP palette pool, or people who paid for a palette will watch it drop free
+    and ask for refunds.
+  - Draw is a deterministic pure function seeded by crate id — testable, and
+    it can't be re-rolled by force-quitting the app mid-animation.
+- [ ] **9.5 Ship gate** — `npm run typecheck && npm run check:imports &&
+      npm test` green; every zero-knowledge claim in the leaderboard opt-in
+      copy re-read against what 9.3 actually uploads.
+
 ### Backlog (post-MVP ideas, not scheduled)
 
 - [ ] Reminders/recurring cadence per contact ("touch every 30 days")
