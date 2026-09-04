@@ -10,20 +10,12 @@ config_version=5
 
 [application]
 
-run/main_scene="res://scenes/MainMenu.tscn"
 config/name="Net Delver"
 config/description="Megaman Legends x Elden Ring style multiplayer game set in a large internet infrastructure theme."
 config/version="0.1.0"
+run/main_scene="res://scenes/MainMenu.tscn"
 config/features=PackedStringArray("4.6", "Forward Plus")
 config/icon="res://icon.svg"
-
-[display]
-
-window/size/viewport_width=1280
-window/size/viewport_height=720
-window/size/window_width_override=1280
-window/size/window_height_override=720
-window/stretch/mode="canvas_items"
 
 [autoload]
 
@@ -34,11 +26,10 @@ NetworkManager="*res://scripts/networking/NetworkManager.gd"
 GameManager="*res://scripts/system/GameManager.gd"
 SynthAudio="*res://scripts/system/SynthAudio.gd"
 
-[rendering]
+[display]
 
-renderer/rendering_method="forward_plus"
-
-; Input actions are declared in scripts/system/InputSettings.gd and installed
-; into the InputMap at startup, because the controls screen has to be able to
-; rebuild and rebind them at runtime. Nothing is registered here on purpose —
-; a duplicate entry in this file would come back after every reset.
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1280
+window/size/window_height_override=720
+window/stretch/mode="canvas_items"
