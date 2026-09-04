@@ -13,7 +13,7 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useAuth } from '../../../src/features/auth/AuthContext';
 import { adminService } from '../../../src/features/admin';
 import { listVendors } from '../../../src/features/vendors/vendorService';
-import { toAppError } from '../../../src/lib/errors';
+import { useAsyncAction } from '../../../src/lib/useAsyncAction';
 import type { AppUser } from '../../../src/backend/types';
 
 export default function AdminScreen() {
@@ -22,32 +22,25 @@ export default function AdminScreen() {
 
   const [users, setUsers] = useState<AppUser[]>([]);
   const [vendorCount, setVendorCount] = useState(0);
-  const [error, setError] = useState('');
+  const { error, run } = useAsyncAction();
 
-  const load = useCallback(() => {
-    setError('');
-    Promise.all([adminService.listUsers(), listVendors()])
-      .then(([u, v]) => {
+  const load = useCallback(
+    () =>
+      run(async () => {
+        const [u, v] = await Promise.all([adminService.listUsers(), listVendors()]);
         setUsers(u);
         setVendorCount(v.length);
-      })
-      .catch((e) => setError(toAppError(e).message));
-  }, []);
+      }),
+    [run],
+  );
 
   useFocusEffect(
     useCallback(() => {
-      load();
+      void load();
     }, [load]),
   );
 
-  const act = async (userId: string) => {
-    setError('');
-    try {
-      await impersonate(userId);
-    } catch (e) {
-      setError(toAppError(e).message);
-    }
-  };
+  const act = (userId: string) => run(() => impersonate(userId));
 
   return (
     <Screen padded={false}>

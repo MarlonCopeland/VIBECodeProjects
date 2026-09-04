@@ -16,7 +16,7 @@ import { PasswordStrengthMeter } from '../../src/features/auth/components/Passwo
 import { SocialAuthButtons } from '../../src/features/auth/components/SocialAuthButtons';
 import { VENDOR_TYPES } from '../../src/features/vendors';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 import type { UserRole, VendorType } from '../../src/backend/types';
 
 export default function SignupScreen() {
@@ -29,15 +29,10 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorType, setVendorType] = useState<VendorType>('Food');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { error, notice, busy, run, setError, setNotice } = useAsyncAction();
 
-  const submit = async () => {
-    setError('');
-    setNotice('');
-    setLoading(true);
-    try {
+  const submit = () =>
+    run(async () => {
       const { needsEmailConfirmation } = await signUp({
         displayName,
         email,
@@ -48,12 +43,7 @@ export default function SignupScreen() {
       if (needsEmailConfirmation) {
         setNotice('Almost there — verify your email to unlock the app.');
       }
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
 
   return (
     <Screen scroll center>
@@ -159,7 +149,7 @@ export default function SignupScreen() {
         </View>
       ) : null}
 
-      <Button title="Create account" onPress={submit} loading={loading} />
+      <Button title="Create account" onPress={submit} loading={busy} />
 
       <SocialAuthButtons onError={setError} />
 

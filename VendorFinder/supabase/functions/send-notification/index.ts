@@ -14,8 +14,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, json } from "../_shared/cors.ts";
 import {
-  canSend, bucketsForSend, getNotificationType, getTier,
-} from "../_shared/tiers.ts";
+  canSend, bucketsForSend, getNotificationType,
+} from "../_shared/quotaEngine.ts";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });

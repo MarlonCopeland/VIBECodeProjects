@@ -8,8 +8,8 @@ Backend assets for Vendor Finder:
   bucket, and the `delete_own_account()` RPC.
 - **`functions/`** — Edge Functions: `send-notification` (server-side quota
   enforcement + Expo Push fan-out), `create-checkout-session`, `customer-portal`,
-  and `stripe-webhook`. `functions/_shared/tiers.ts` mirrors the app's quota
-  engine so enforcement is identical on both sides.
+  and `stripe-webhook`. `functions/_shared/quotaEngine.ts` IS the quota engine
+  — the app imports the same file, so enforcement is identical by construction.
 - **`config.toml`** — minimal Supabase CLI config.
 
 **Don't follow instructions here — there's one complete, step-by-step guide for

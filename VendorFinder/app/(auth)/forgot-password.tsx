@@ -11,7 +11,7 @@ import { Button } from '../../src/components/Button';
 import { Banner } from '../../src/components/Banner';
 import { useAuth } from '../../src/features/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 
 export default function ForgotPasswordScreen() {
   const { sendPasswordReset } = useAuth();
@@ -19,22 +19,14 @@ export default function ForgotPasswordScreen() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { error, busy, run } = useAsyncAction();
 
-  const submit = async () => {
-    setError('');
-    setLoading(true);
-    try {
+  const submit = () =>
+    run(async () => {
       await sendPasswordReset(email);
       setSent(true);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
 
   return (
     <Screen scroll center>
@@ -62,7 +54,7 @@ export default function ForgotPasswordScreen() {
         placeholder="you@example.com"
       />
 
-      <Button title="Send reset link" onPress={submit} loading={loading} />
+      <Button title="Send reset link" onPress={submit} loading={busy} />
       <View style={{ marginTop: spacing.md }}>
         <Button title="Back to sign in" variant="ghost" onPress={() => router.back()} />
       </View>

@@ -13,7 +13,7 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useAuth } from '../../../src/features/auth/AuthContext';
 import { vendorToolsService } from '../../../src/features/vendorTools';
 import { VENDOR_TYPES } from '../../../src/features/vendors';
-import { toAppError } from '../../../src/lib/errors';
+import { useAsyncAction } from '../../../src/lib/useAsyncAction';
 import type { Vendor, VendorType } from '../../../src/backend/types';
 
 export default function EditVendorProfileScreen() {
@@ -26,24 +26,21 @@ export default function EditVendorProfileScreen() {
   const [type, setType] = useState<VendorType>('Other');
   const [tags, setTags] = useState('');
   const [description, setDescription] = useState('');
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
+  const { error, busy, run } = useAsyncAction();
 
   useFocusEffect(
     useCallback(() => {
       if (!user) return;
-      vendorToolsService
-        .getByOwner(user.id)
-        .then((v) => {
-          if (!v) return;
-          setVendor(v);
-          setName(v.name);
-          setType(v.type);
-          setTags((v.tags || []).join(', '));
-          setDescription(v.description || '');
-        })
-        .catch((e) => setError(toAppError(e).message));
-    }, [user]),
+      void run(async () => {
+        const v = await vendorToolsService.getByOwner(user.id);
+        if (!v) return;
+        setVendor(v);
+        setName(v.name);
+        setType(v.type);
+        setTags((v.tags || []).join(', '));
+        setDescription(v.description || '');
+      });
+    }, [user, run]),
   );
 
   if (!vendor) {
@@ -54,10 +51,8 @@ export default function EditVendorProfileScreen() {
     );
   }
 
-  const save = async () => {
-    setError('');
-    setSaving(true);
-    try {
+  const save = () =>
+    run(async () => {
       await vendorToolsService.update(vendor.id, {
         name: name.trim(),
         type,
@@ -68,12 +63,7 @@ export default function EditVendorProfileScreen() {
         description: description.trim(),
       });
       router.back();
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setSaving(false);
-    }
-  };
+    });
 
   return (
     <Screen scroll>
@@ -124,7 +114,7 @@ export default function EditVendorProfileScreen() {
         numberOfLines={3}
       />
 
-      <Button title="Save changes" onPress={save} loading={saving} />
+      <Button title="Save changes" onPress={save} loading={busy} />
     </Screen>
   );
 }

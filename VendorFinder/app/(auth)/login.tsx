@@ -12,7 +12,7 @@ import { Banner } from '../../src/components/Banner';
 import { useAuth } from '../../src/features/auth/AuthContext';
 import { SocialAuthButtons } from '../../src/features/auth/components/SocialAuthButtons';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 import { BACKEND } from '../../src/config/env';
 
 export default function LoginScreen() {
@@ -22,21 +22,10 @@ export default function LoginScreen() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { error, busy, run, setError } = useAsyncAction();
 
-  const submit = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      await signIn({ email, password });
-      // Gate in the root layout handles navigation on success.
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Gate in the root layout handles navigation on success.
+  const submit = () => run(() => signIn({ email, password }));
 
   return (
     <Screen scroll center>
@@ -85,7 +74,7 @@ export default function LoginScreen() {
         </Link>
       </View>
 
-      <Button title="Sign in" onPress={submit} loading={loading} />
+      <Button title="Sign in" onPress={submit} loading={busy} />
 
       <SocialAuthButtons onError={setError} />
 

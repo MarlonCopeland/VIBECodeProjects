@@ -9,6 +9,8 @@
 
 import * as Crypto from 'expo-crypto';
 import { storage } from '../../lib/storage';
+import { applyVendorFilter } from '../vendorFilter';
+import { createFollowerActions } from '../followerActions';
 import {
   canSend,
   bucketsForSend,
@@ -457,25 +459,7 @@ const users: UsersApi = {
 const vendors: VendorsApi = {
   async list(filter: VendorFilter = {}): Promise<Vendor[]> {
     await load();
-    let result = db.vendors;
-    if (filter.viewerUserId) {
-      const viewer = filter.viewerUserId;
-      result = result.filter((v) => !(v.blockedUserIds || []).includes(viewer));
-    }
-    if (filter.query) {
-      const q = filter.query.toLowerCase();
-      result = result.filter(
-        (v) =>
-          v.name.toLowerCase().includes(q) ||
-          v.type.toLowerCase().includes(q) ||
-          (v.description || '').toLowerCase().includes(q) ||
-          (v.tags || []).some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-    if (filter.type) result = result.filter((v) => v.type === filter.type);
-    if (filter.tag) result = result.filter((v) => (v.tags || []).includes(filter.tag!));
-    if (filter.openOnly) result = result.filter((v) => v.isOpen);
-    return result;
+    return applyVendorFilter(db.vendors, filter);
   },
 
   async get(id: string): Promise<Vendor | null> {
@@ -578,29 +562,11 @@ const favorites: FavoritesApi = {
     return db.users.filter((u) => followerIds.includes(u.id)).map(publicUser);
   },
 
-  async blockFollower(vendorId: string, userId: string): Promise<void> {
-    await load();
-    const vendor = db.vendors.find((v) => v.id === vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    const blocked = new Set(vendor.blockedUserIds || []);
-    blocked.add(userId);
-    await vendors.update(vendorId, { blockedUserIds: [...blocked] });
-    await favorites.remove(userId, vendorId);
-  },
-
-  async unblockFollower(vendorId: string, userId: string): Promise<void> {
-    await load();
-    const vendor = db.vendors.find((v) => v.id === vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    await vendors.update(vendorId, {
-      blockedUserIds: (vendor.blockedUserIds || []).filter((id) => id !== userId),
-    });
-  },
-
-  async removeFollower(vendorId: string, userId: string): Promise<void> {
-    // Force an unfollow without blocking re-following.
-    await favorites.remove(userId, vendorId);
-  },
+  ...createFollowerActions({
+    getVendor: (id) => vendors.get(id),
+    updateVendor: (id, patch) => vendors.update(id, patch),
+    removeFavorite: (userId, vendorId) => favorites.remove(userId, vendorId),
+  }),
 };
 
 // =========================================================================

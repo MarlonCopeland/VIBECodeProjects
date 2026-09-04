@@ -15,62 +15,32 @@ import { Banner } from '../../src/components/Banner';
 import { useAuth } from '../../src/features/auth/AuthContext';
 import { BACKEND } from '../../src/config/env';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 
 export default function VerifyEmailScreen() {
   const { user, refresh, confirmVerification, resendVerification, signOut } = useAuth();
   const { spacing } = useTheme();
 
   const [code, setCode] = useState('');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [checking, setChecking] = useState(false);
-  const [confirming, setConfirming] = useState(false);
-  const [resending, setResending] = useState(false);
+  // Three buttons spin independently but share one error/notice banner.
+  const { error, notice, isBusy, run, setNotice } = useAsyncAction();
 
   const isLocal = BACKEND === 'local';
 
-  const confirm = async () => {
-    setError('');
-    setNotice('');
-    setConfirming(true);
-    try {
-      await confirmVerification(code.trim());
-      // On success the root gate routes onward automatically.
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setConfirming(false);
-    }
-  };
+  // On success the root gate routes onward automatically.
+  const confirm = () => run(() => confirmVerification(code.trim()), 'confirm');
 
-  const check = async () => {
-    setError('');
-    setNotice('');
-    setChecking(true);
-    try {
+  const check = () =>
+    run(async () => {
       await refresh();
       setNotice('Not verified yet. Click the link in your email, then try again.');
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setChecking(false);
-    }
-  };
+    }, 'check');
 
-  const resend = async () => {
-    setError('');
-    setNotice('');
-    setResending(true);
-    try {
+  const resend = () =>
+    run(async () => {
       await resendVerification();
       setNotice(isLocal ? 'New code generated — check the console log.' : 'Verification email sent.');
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setResending(false);
-    }
-  };
+    }, 'resend');
 
   return (
     <Screen scroll center>
@@ -98,14 +68,14 @@ export default function VerifyEmailScreen() {
             placeholder="123456"
             maxLength={6}
           />
-          <Button title="Verify" onPress={confirm} loading={confirming} />
+          <Button title="Verify" onPress={confirm} loading={isBusy('confirm')} />
         </>
       ) : (
-        <Button title="I've verified — continue" onPress={check} loading={checking} />
+        <Button title="I've verified — continue" onPress={check} loading={isBusy('check')} />
       )}
 
       <View style={{ marginTop: spacing.md }}>
-        <Button title="Resend" variant="secondary" onPress={resend} loading={resending} />
+        <Button title="Resend" variant="secondary" onPress={resend} loading={isBusy('resend')} />
       </View>
       <View style={{ marginTop: spacing.md }}>
         <Button title="Sign out" variant="ghost" onPress={() => void signOut()} />

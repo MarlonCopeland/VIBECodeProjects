@@ -19,7 +19,16 @@ import { ScheduleItem } from '../../../src/features/vendors/components/ScheduleI
 import { vendorToolsService } from '../../../src/features/vendorTools';
 import { NOTIFICATION_TYPE_LIST } from '../../../src/features/payments';
 import { toAppError } from '../../../src/lib/errors';
+import { useAsyncAction } from '../../../src/lib/useAsyncAction';
 import type { NotificationTypeKey, ScheduleSlot, Vendor } from '../../../src/backend/types';
+
+/** A blocked send is a quota problem, so point at the fix rather than the code. */
+function formatBroadcastError(e: unknown): string {
+  const err = e as Error & { code?: string };
+  return err.code === 'QUOTA_EXCEEDED'
+    ? `${err.message} Upgrade your plan to send more.`
+    : toAppError(e).message;
+}
 
 export default function VendorToolsScreen() {
   const { user } = useAuth();
@@ -28,9 +37,9 @@ export default function VendorToolsScreen() {
   const router = useRouter();
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { error, notice, busy, run, setError, setNotice } = useAsyncAction({
+    formatError: formatBroadcastError,
+  });
 
   // Broadcast state
   const [type, setType] = useState<NotificationTypeKey>('open_for_business');
@@ -44,11 +53,8 @@ export default function VendorToolsScreen() {
 
   const loadVendor = useCallback(() => {
     if (!user) return;
-    vendorToolsService
-      .getByOwner(user.id)
-      .then(setVendor)
-      .catch((e) => setError(toAppError(e).message));
-  }, [user]);
+    void run(async () => setVendor(await vendorToolsService.getByOwner(user.id)));
+  }, [user, run]);
 
   useFocusEffect(
     useCallback(() => {
@@ -65,20 +71,6 @@ export default function VendorToolsScreen() {
       </Screen>
     );
   }
-
-  const run = async (fn: () => Promise<void>) => {
-    setError('');
-    setNotice('');
-    setBusy(true);
-    try {
-      await fn();
-    } catch (e) {
-      const err = e as Error & { code?: string };
-      setError(err.code === 'QUOTA_EXCEEDED' ? `${err.message} Upgrade your plan to send more.` : toAppError(e).message);
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const toggleOpen = () =>
     run(async () => {

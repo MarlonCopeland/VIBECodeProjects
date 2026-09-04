@@ -15,7 +15,7 @@ import { useAuth } from '../../src/features/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { TIERS, paymentProvider, type Subscription, type Tier } from '../../src/features/payments';
 import { getVendorByOwner } from '../../src/features/vendors/vendorService';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 
 export default function SubscriptionScreen() {
   const { user } = useAuth();
@@ -23,43 +23,32 @@ export default function SubscriptionScreen() {
 
   const [vendorId, setVendorId] = useState<string | null>(null);
   const [subscription, setSubscription] = useState<Subscription | null>(null);
-  const [error, setError] = useState('');
-  const [busyTier, setBusyTier] = useState<string | null>(null);
+  // Each tier card spins on its own, keyed by tier id.
+  const { error, isBusy, run, setError } = useAsyncAction();
 
-  const load = useCallback(async () => {
+  const fetchSubscription = useCallback(async () => {
     if (!user) return;
-    setError('');
-    try {
-      const vendor = await getVendorByOwner(user.id);
-      if (!vendor) {
-        setError('No vendor record found for your account.');
-        return;
-      }
-      setVendorId(vendor.id);
-      setSubscription(await paymentProvider.getSubscription(vendor.id));
-    } catch (e) {
-      setError(toAppError(e).message);
+    const vendor = await getVendorByOwner(user.id);
+    if (!vendor) {
+      setError('No vendor record found for your account.');
+      return;
     }
-  }, [user]);
+    setVendorId(vendor.id);
+    setSubscription(await paymentProvider.getSubscription(vendor.id));
+  }, [user, setError]);
 
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      void run(fetchSubscription);
+    }, [run, fetchSubscription]),
   );
 
-  const choose = async (tier: Tier) => {
+  const choose = (tier: Tier) => {
     if (!vendorId) return;
-    setError('');
-    setBusyTier(tier.id);
-    try {
+    return run(async () => {
       const result = await paymentProvider.startCheckout(vendorId, tier);
       if (result.subscription) setSubscription(result.subscription);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setBusyTier(null);
-    }
+    }, tier.id);
   };
 
   return (
@@ -96,7 +85,7 @@ export default function SubscriptionScreen() {
                   title={current ? 'Current plan' : tier.id === 'free' ? 'Downgrade' : 'Choose plan'}
                   variant={current ? 'secondary' : 'primary'}
                   disabled={current || !vendorId}
-                  loading={busyTier === tier.id}
+                  loading={isBusy(tier.id)}
                   onPress={() => choose(tier)}
                 />
               </View>

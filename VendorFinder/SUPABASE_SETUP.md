@@ -207,10 +207,11 @@ happens in Edge Functions.
    STRIPE_PRICE_TIER3=price_...
    ```
 
-> Tier prices/quotas are also encoded in **`src/features/payments/tiers.ts`**. To
-> change what a tier includes (or move the 10-follower gate), edit that one file
-> — and mirror it in **`supabase/functions/_shared/tiers.ts`** so server-side
-> enforcement matches.
+> Tier quotas and the 10-follower gate live in
+> **`supabase/functions/_shared/quotaEngine.ts`** — one file, imported by both the
+> app and the `send-notification` Edge Function, so client and server always
+> agree. Edit quotas there; edit display names, price labels, and Stripe price
+> ids in **`src/features/payments/tiers.ts`**.
 
 ## 3.2 Deploy the Edge Functions
 

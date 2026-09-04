@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit",
     "smoke:supabase": "node scripts/supabase-smoke.mjs",
     "lint": "expo lint",
-    "prebuild": "expo prebuild"
+    "prebuild": "expo prebuild",
+    "test:quota": "node --experimental-strip-types scripts/quota-parity.mts"
   },
   "dependencies": {
     "@expo/metro-runtime": "~4.0.1",

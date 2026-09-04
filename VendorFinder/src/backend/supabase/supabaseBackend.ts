@@ -14,6 +14,8 @@ import * as Linking from 'expo-linking';
 import * as WebBrowser from 'expo-web-browser';
 import type { Session as SbSession, User as SbUser } from '@supabase/supabase-js';
 import { getSupabase } from './client';
+import { applyVendorFilter } from '../vendorFilter';
+import { createFollowerActions } from '../followerActions';
 import type {
   AppUser,
   AuthApi,
@@ -46,47 +48,132 @@ WebBrowser.maybeCompleteAuthSession();
 
 const AVATAR_BUCKET = 'avatars';
 
+/** Generic row payload, for writes where the column set is built dynamically. */
 type Row = Record<string, unknown>;
+
+// ---- row shapes -------------------------------------------------------------
+// Declared explicitly so the mappers below read as plain field copies rather
+// than ~40 `row.x as T` casts. Columns are optional because a row may predate a
+// migration; the mappers supply the same defaults they always did.
+
+interface ProfileRow {
+  id: string;
+  username?: string | null;
+  email?: string | null;
+  display_name?: string | null;
+  role?: UserRole | null;
+  avatar_url?: string | null;
+  email_verified?: boolean | null;
+  metadata?: Record<string, unknown> | null;
+  provider?: AppUser['provider'] | null;
+  provider_id?: string | null;
+  interests?: string[] | null;
+  vendor_id?: string | null;
+  created_at?: string | null;
+}
+
+interface VendorRow {
+  id: string;
+  name: string;
+  type?: Vendor['type'] | null;
+  tags?: string[] | null;
+  description?: string | null;
+  owner_id: string;
+  blocked_user_ids?: string[] | null;
+  schedule?: Vendor['schedule'] | null;
+  current_location?: Vendor['currentLocation'];
+  is_open?: boolean | null;
+  rating?: number | null;
+  subscription_tier?: Vendor['subscriptionTier'] | null;
+  subscription_status?: Vendor['subscriptionStatus'] | null;
+  created_at?: string | null;
+}
+
+interface NotificationRow {
+  id: string;
+  vendor_id: string;
+  type: VendorNotification['type'];
+  title?: string | null;
+  body?: string | null;
+  buckets?: VendorNotification['buckets'] | null;
+  recipient_ids?: string[] | null;
+  created_at?: string | null;
+}
+
+interface WeeklyUsageRow {
+  bucket: keyof WeeklyUsage;
+  count: number | string;
+}
+
+/** Auth user_metadata the app writes at sign-up. */
+interface UserMetadata {
+  display_name?: string;
+  full_name?: string;
+  username?: string;
+  avatar_url?: string;
+}
+
+// ---- query helpers ----------------------------------------------------------
+// Supabase reports failures in the response payload rather than throwing. These
+// unwrap that shape so each method below reads as a single statement, instead of
+// repeating get-client / destructure / re-throw ~30 times.
+
+interface SbResponse<T> {
+  data: T;
+  error: { message: string } | null;
+}
+
+/** Await a Supabase query, throwing its error instead of returning it. */
+async function unwrap<T>(query: PromiseLike<SbResponse<T>>): Promise<T> {
+  const { data, error } = await query;
+  if (error) throw error;
+  return data;
+}
+
+/** Same, for list queries — a null result becomes an empty array. */
+async function unwrapRows<T>(query: PromiseLike<SbResponse<T[] | null>>): Promise<T[]> {
+  return (await unwrap(query)) ?? [];
+}
 
 // ---- row <-> app mappers ----------------------------------------------------
 
 /** Build an AppUser from a profile row alone (directory/cross-user reads). */
-function profileToAppUser(row: Row | null | undefined): AppUser | null {
+function profileToAppUser(row: ProfileRow | null | undefined): AppUser | null {
   if (!row) return null;
   return {
-    id: row.id as string,
-    email: (row.email as string) || '',
-    displayName: (row.display_name as string) || (row.username as string) || 'User',
-    role: (row.role as UserRole) || 'user',
-    avatarUrl: (row.avatar_url as string) ?? null,
+    id: row.id,
+    email: row.email || '',
+    displayName: row.display_name || row.username || 'User',
+    role: row.role || 'user',
+    avatarUrl: row.avatar_url ?? null,
     emailVerified: row.email_verified != null ? !!row.email_verified : true,
-    metadata: (row.metadata as Record<string, unknown>) ?? {},
-    createdAt: (row.created_at as string) || new Date().toISOString(),
-    username: (row.username as string) ?? undefined,
-    interests: (row.interests as string[]) ?? [],
-    vendorId: (row.vendor_id as string) ?? null,
-    provider: (row.provider as AppUser['provider']) ?? 'email',
-    providerId: (row.provider_id as string) ?? null,
+    metadata: row.metadata ?? {},
+    createdAt: row.created_at || new Date().toISOString(),
+    username: row.username ?? undefined,
+    interests: row.interests ?? [],
+    vendorId: row.vendor_id ?? null,
+    provider: row.provider ?? 'email',
+    providerId: row.provider_id ?? null,
   };
 }
 
 /** Build an AppUser from a Supabase auth user + optional profile row. */
-function toAppUser(u: SbUser, profile?: Row | null): AppUser {
-  const meta = (u.user_metadata ?? {}) as Row;
+function toAppUser(u: SbUser, profile?: ProfileRow | null): AppUser {
+  const meta = (u.user_metadata ?? {}) as UserMetadata;
   const base = profileToAppUser(profile) ?? {
     id: u.id,
     email: u.email ?? '',
     displayName:
-      (meta.display_name as string) ||
-      (meta.full_name as string) ||
+      meta.display_name ||
+      meta.full_name ||
       (u.email ? u.email.split('@')[0] : 'User') ||
       'User',
     role: 'user' as UserRole,
-    avatarUrl: (meta.avatar_url as string) ?? null,
+    avatarUrl: meta.avatar_url ?? null,
     emailVerified: false,
     metadata: {},
     createdAt: u.created_at ?? new Date().toISOString(),
-    username: (meta.username as string) ?? undefined,
+    username: meta.username ?? undefined,
     interests: [],
     vendorId: null,
     provider: 'email' as AppUser['provider'],
@@ -95,64 +182,73 @@ function toAppUser(u: SbUser, profile?: Row | null): AppUser {
   return { ...base, email: u.email ?? base.email, emailVerified: !!u.email_confirmed_at };
 }
 
-function mapVendor(row: Row | null | undefined): Vendor | null {
+function mapVendor(row: VendorRow | null | undefined): Vendor | null {
   if (!row) return null;
   return {
-    id: row.id as string,
-    name: row.name as string,
-    type: (row.type as Vendor['type']) || 'Other',
-    tags: (row.tags as string[]) || [],
-    description: (row.description as string) || '',
-    ownerId: row.owner_id as string,
-    blockedUserIds: (row.blocked_user_ids as string[]) || [],
-    schedule: (row.schedule as Vendor['schedule']) || [],
-    currentLocation: (row.current_location as Vendor['currentLocation']) || null,
+    id: row.id,
+    name: row.name,
+    type: row.type || 'Other',
+    tags: row.tags || [],
+    description: row.description || '',
+    ownerId: row.owner_id,
+    blockedUserIds: row.blocked_user_ids || [],
+    schedule: row.schedule || [],
+    currentLocation: row.current_location || null,
     isOpen: !!row.is_open,
-    rating: (row.rating as number) || 0,
-    subscriptionTier: (row.subscription_tier as Vendor['subscriptionTier']) || 'free',
-    subscriptionStatus: (row.subscription_status as Vendor['subscriptionStatus']) || 'active',
-    createdAt: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    rating: row.rating || 0,
+    subscriptionTier: row.subscription_tier || 'free',
+    subscriptionStatus: row.subscription_status || 'active',
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
 }
 
-function mapNotification(row: Row): VendorNotification {
+function mapNotification(row: NotificationRow): VendorNotification {
   return {
-    id: row.id as string,
-    vendorId: row.vendor_id as string,
-    type: row.type as VendorNotification['type'],
-    title: (row.title as string) || '',
-    body: (row.body as string) || '',
-    buckets: (row.buckets as VendorNotification['buckets']) || [],
-    recipientIds: (row.recipient_ids as string[]) || [],
-    at: row.created_at ? new Date(row.created_at as string).getTime() : Date.now(),
+    id: row.id,
+    vendorId: row.vendor_id,
+    type: row.type,
+    title: row.title || '',
+    body: row.body || '',
+    buckets: row.buckets || [],
+    recipientIds: row.recipient_ids || [],
+    at: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
 }
 
-function vendorPatchToRow(patch: VendorPatch): Row {
-  const row: Row = {};
-  if ('name' in patch) row.name = patch.name;
-  if ('type' in patch) row.type = patch.type;
-  if ('tags' in patch) row.tags = patch.tags;
-  if ('description' in patch) row.description = patch.description;
-  if ('blockedUserIds' in patch) row.blocked_user_ids = patch.blockedUserIds;
-  if ('schedule' in patch) row.schedule = patch.schedule;
-  if ('currentLocation' in patch) row.current_location = patch.currentLocation;
-  if ('isOpen' in patch) row.is_open = patch.isOpen;
-  if ('subscriptionTier' in patch) row.subscription_tier = patch.subscriptionTier;
-  if ('subscriptionStatus' in patch) row.subscription_status = patch.subscriptionStatus;
-  return row;
-}
+// app field -> database column. Doubles as the allow-list of what a patch may
+// write: a field with no entry here is silently ignored, which is what keeps
+// callers from pushing `id` or `createdAt` into an UPDATE.
+const VENDOR_COLUMNS: Record<keyof VendorPatch, string> = {
+  name: 'name',
+  type: 'type',
+  tags: 'tags',
+  description: 'description',
+  blockedUserIds: 'blocked_user_ids',
+  schedule: 'schedule',
+  currentLocation: 'current_location',
+  isOpen: 'is_open',
+  subscriptionTier: 'subscription_tier',
+  subscriptionStatus: 'subscription_status',
+};
 
-function userPatchToRow(patch: Partial<AppUser>): Row {
+const PROFILE_COLUMNS: Partial<Record<keyof AppUser, string>> = {
+  username: 'username',
+  email: 'email',
+  displayName: 'display_name',
+  role: 'role',
+  interests: 'interests',
+  vendorId: 'vendor_id',
+  avatarUrl: 'avatar_url',
+  metadata: 'metadata',
+};
+
+/** Project a partial app object onto its row columns, skipping absent fields. */
+function toRow<T extends object>(patch: T, columns: Partial<Record<keyof T, string>>): Row {
   const row: Row = {};
-  if ('username' in patch) row.username = patch.username;
-  if ('email' in patch) row.email = patch.email;
-  if ('displayName' in patch) row.display_name = patch.displayName;
-  if ('role' in patch) row.role = patch.role;
-  if ('interests' in patch) row.interests = patch.interests;
-  if ('vendorId' in patch) row.vendor_id = patch.vendorId;
-  if ('avatarUrl' in patch) row.avatar_url = patch.avatarUrl;
-  if ('metadata' in patch) row.metadata = patch.metadata;
+  for (const key of Object.keys(patch) as (keyof T)[]) {
+    const column = columns[key];
+    if (column && patch[key] !== undefined) row[column] = patch[key];
+  }
   return row;
 }
 
@@ -177,29 +273,25 @@ async function sessionFromSb(sb: SbSession | null): Promise<Session | null> {
 
 const auth: AuthApi = {
   async getSession() {
-    const supabase = getSupabase();
-    const { data } = await supabase.auth.getSession();
+    const { data } = await getSupabase().auth.getSession();
     return sessionFromSb(data.session);
   },
 
   async refreshSession() {
-    const supabase = getSupabase();
-    const { data } = await supabase.auth.refreshSession();
+    const { data } = await getSupabase().auth.refreshSession();
     return sessionFromSb(data.session);
   },
 
   onAuthStateChange(cb: AuthChangeCallback): Unsubscribe {
-    const supabase = getSupabase();
-    const { data } = supabase.auth.onAuthStateChange((_event, sb) => {
+    const { data } = getSupabase().auth.onAuthStateChange((_event, sb) => {
       void sessionFromSb(sb).then(cb);
     });
     return { unsubscribe: () => data.subscription.unsubscribe() };
   },
 
   async signUpWithEmail(input: SignUpInput): Promise<SignUpResult> {
-    const supabase = getSupabase();
     const redirectTo = Linking.createURL('/verify-email');
-    const { data, error } = await supabase.auth.signUp({
+    const { data, error } = await getSupabase().auth.signUp({
       email: input.email.trim(),
       password: input.password,
       options: {
@@ -221,8 +313,7 @@ const auth: AuthApi = {
   },
 
   async signInWithEmail(input: SignInInput): Promise<Session> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await getSupabase().auth.signInWithPassword({
       email: input.email.trim(),
       password: input.password,
     });
@@ -256,9 +347,8 @@ const auth: AuthApi = {
   },
 
   async signInWithMagicLink(email: string): Promise<void> {
-    const supabase = getSupabase();
     const emailRedirectTo = Linking.createURL('/');
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await getSupabase().auth.signInWithOtp({
       email: email.trim(),
       options: { emailRedirectTo },
     });
@@ -266,21 +356,18 @@ const auth: AuthApi = {
   },
 
   async sendPasswordReset(email: string): Promise<void> {
-    const supabase = getSupabase();
     const redirectTo = Linking.createURL('/reset-password');
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo });
+    const { error } = await getSupabase().auth.resetPasswordForEmail(email.trim(), { redirectTo });
     if (error) throw error;
   },
 
   async updatePassword(newPassword: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    const { error } = await getSupabase().auth.updateUser({ password: newPassword });
     if (error) throw error;
   },
 
   async resendVerification(email: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.auth.resend({ type: 'signup', email: email.trim() });
+    const { error } = await getSupabase().auth.resend({ type: 'signup', email: email.trim() });
     if (error) throw error;
   },
 
@@ -291,8 +378,7 @@ const auth: AuthApi = {
   },
 
   async signOut(): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.auth.signOut();
+    const { error } = await getSupabase().auth.signOut();
     if (error) throw error;
   },
 };
@@ -312,11 +398,7 @@ const profile: ProfileApi = {
 
   async updateProfile(userId, patch): Promise<AppUser> {
     const supabase = getSupabase();
-    const row: Row = { updated_at: new Date().toISOString() };
-    if (patch.displayName !== undefined) row.display_name = patch.displayName;
-    if (patch.avatarUrl !== undefined) row.avatar_url = patch.avatarUrl;
-    if (patch.metadata !== undefined) row.metadata = patch.metadata;
-    if (patch.interests !== undefined) row.interests = patch.interests;
+    const row: Row = { ...toRow(patch, PROFILE_COLUMNS), updated_at: new Date().toISOString() };
 
     const { data, error } = await supabase
       .from('profiles')
@@ -361,29 +443,26 @@ const profile: ProfileApi = {
 
 const users: UsersApi = {
   async get(id: string): Promise<AppUser | null> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from('profiles').select('*').eq('id', id).maybeSingle();
-    if (error) throw error;
-    return profileToAppUser(data);
+    return profileToAppUser(
+      await unwrap(getSupabase().from('profiles').select('*').eq('id', id).maybeSingle()),
+    );
   },
 
   async list(): Promise<AppUser[]> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from('profiles').select('*');
-    if (error) throw error;
-    return (data || []).map((r) => profileToAppUser(r)!).filter(Boolean);
+    const rows = await unwrapRows(getSupabase().from('profiles').select('*'));
+    return rows.map((r) => profileToAppUser(r)!).filter(Boolean);
   },
 
   async update(id: string, patch: Partial<AppUser>): Promise<AppUser> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('profiles')
-      .update(userPatchToRow(patch))
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return profileToAppUser(data)!;
+    const row = await unwrap(
+      getSupabase()
+        .from('profiles')
+        .update(toRow(patch, PROFILE_COLUMNS))
+        .eq('id', id)
+        .select('*')
+        .single(),
+    );
+    return profileToAppUser(row)!;
   },
 };
 
@@ -393,51 +472,29 @@ const users: UsersApi = {
 
 const vendors: VendorsApi = {
   async list(filter: VendorFilter = {}): Promise<Vendor[]> {
-    const supabase = getSupabase();
-    let q = supabase.from('vendors').select('*');
+    // Narrow in SQL where we can; applyVendorFilter still enforces every clause.
+    let q = getSupabase().from('vendors').select('*');
     if (filter.type) q = q.eq('type', filter.type);
     if (filter.openOnly) q = q.eq('is_open', true);
-    const { data, error } = await q;
-    if (error) throw error;
-    let result = (data || []).map((r) => mapVendor(r)!).filter(Boolean);
-    if (filter.viewerUserId) {
-      const viewer = filter.viewerUserId;
-      result = result.filter((v) => !(v.blockedUserIds || []).includes(viewer));
-    }
-    if (filter.query) {
-      const ql = filter.query.toLowerCase();
-      result = result.filter(
-        (v) =>
-          v.name.toLowerCase().includes(ql) ||
-          v.type.toLowerCase().includes(ql) ||
-          (v.description || '').toLowerCase().includes(ql) ||
-          (v.tags || []).some((t) => t.toLowerCase().includes(ql)),
-      );
-    }
-    if (filter.tag) result = result.filter((v) => (v.tags || []).includes(filter.tag!));
-    return result;
+    const rows = await unwrapRows(q);
+    return applyVendorFilter(rows.map((r) => mapVendor(r)!).filter(Boolean), filter);
   },
 
   async get(id: string): Promise<Vendor | null> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from('vendors').select('*').eq('id', id).maybeSingle();
-    if (error) throw error;
-    return mapVendor(data);
+    return mapVendor(
+      await unwrap(getSupabase().from('vendors').select('*').eq('id', id).maybeSingle()),
+    );
   },
 
   async getByOwner(ownerId: string): Promise<Vendor | null> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('vendors')
-      .select('*')
-      .eq('owner_id', ownerId)
-      .maybeSingle();
-    if (error) throw error;
-    return mapVendor(data);
+    return mapVendor(
+      await unwrap(
+        getSupabase().from('vendors').select('*').eq('owner_id', ownerId).maybeSingle(),
+      ),
+    );
   },
 
   async register(data: VendorRegistration): Promise<Vendor> {
-    const supabase = getSupabase();
     const row: Row = {
       name: data.name,
       type: data.type || 'Other',
@@ -452,27 +509,26 @@ const vendors: VendorsApi = {
       subscription_tier: data.subscriptionTier || 'free',
       subscription_status: data.subscriptionStatus || 'active',
     };
-    const { data: inserted, error } = await supabase.from('vendors').insert(row).select('*').single();
-    if (error) throw error;
-    return mapVendor(inserted)!;
+    return mapVendor(
+      await unwrap(getSupabase().from('vendors').insert(row).select('*').single()),
+    )!;
   },
 
   async update(id: string, patch: VendorPatch): Promise<Vendor> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('vendors')
-      .update(vendorPatchToRow(patch))
-      .eq('id', id)
-      .select('*')
-      .single();
-    if (error) throw error;
-    return mapVendor(data)!;
+    return mapVendor(
+      await unwrap(
+        getSupabase()
+          .from('vendors')
+          .update(toRow(patch, VENDOR_COLUMNS))
+          .eq('id', id)
+          .select('*')
+          .single(),
+      ),
+    )!;
   },
 
   async remove(id: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('vendors').delete().eq('id', id);
-    if (error) throw error;
+    await unwrap(getSupabase().from('vendors').delete().eq('id', id));
   },
 
   subscribe(cb: (vendors: Vendor[]) => void): () => void {
@@ -496,60 +552,41 @@ const vendors: VendorsApi = {
 
 const favorites: FavoritesApi = {
   async list(userId: string): Promise<string[]> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.from('favorites').select('vendor_id').eq('user_id', userId);
-    if (error) throw error;
-    return (data || []).map((r) => r.vendor_id as string);
+    const rows = await unwrapRows(
+      getSupabase().from('favorites').select('vendor_id').eq('user_id', userId),
+    );
+    return rows.map((r) => r.vendor_id as string);
   },
 
   async add(userId: string, vendorId: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('favorites').insert({ user_id: userId, vendor_id: vendorId });
+    const { error } = await getSupabase()
+      .from('favorites')
+      .insert({ user_id: userId, vendor_id: vendorId });
     if (error && error.code !== '23505') throw error; // ignore duplicate
   },
 
   async remove(userId: string, vendorId: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase
-      .from('favorites')
-      .delete()
-      .eq('user_id', userId)
-      .eq('vendor_id', vendorId);
-    if (error) throw error;
+    await unwrap(
+      getSupabase().from('favorites').delete().eq('user_id', userId).eq('vendor_id', vendorId),
+    );
   },
 
   async listFollowers(vendorId: string): Promise<AppUser[]> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('favorites')
-      .select('user_id, profiles!inner(*)')
-      .eq('vendor_id', vendorId);
-    if (error) throw error;
-    return (data || [])
-      .map((r) => profileToAppUser((r as Row).profiles as Row))
+    const rows = await unwrapRows(
+      getSupabase().from('favorites').select('user_id, profiles!inner(*)').eq('vendor_id', vendorId),
+    );
+    // `profiles!inner(*)` embeds exactly one row, but supabase-js types every
+    // embed as an array — so its inferred type has to be overridden here.
+    return rows
+      .map((r) => profileToAppUser((r as unknown as { profiles: ProfileRow }).profiles))
       .filter((u): u is AppUser => !!u);
   },
 
-  async blockFollower(vendorId: string, userId: string): Promise<void> {
-    const vendor = await vendors.get(vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    const blocked = new Set(vendor.blockedUserIds || []);
-    blocked.add(userId);
-    await vendors.update(vendorId, { blockedUserIds: [...blocked] });
-    await favorites.remove(userId, vendorId);
-  },
-
-  async unblockFollower(vendorId: string, userId: string): Promise<void> {
-    const vendor = await vendors.get(vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    await vendors.update(vendorId, {
-      blockedUserIds: (vendor.blockedUserIds || []).filter((id) => id !== userId),
-    });
-  },
-
-  async removeFollower(vendorId: string, userId: string): Promise<void> {
-    await favorites.remove(userId, vendorId);
-  },
+  ...createFollowerActions({
+    getVendor: (id) => vendors.get(id),
+    updateVendor: (id, patch) => vendors.update(id, patch),
+    removeFavorite: (userId, vendorId) => favorites.remove(userId, vendorId),
+  }),
 };
 
 // =========================================================================
@@ -558,8 +595,7 @@ const favorites: FavoritesApi = {
 
 const broadcasts: BroadcastsApi = {
   async send(vendorId, input): Promise<SendNotificationResult> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase.functions.invoke('send-notification', {
+    const { data, error } = await getSupabase().functions.invoke('send-notification', {
       body: { vendorId, type: input.type, title: input.title, body: input.body },
     });
     if (error) {
@@ -578,35 +614,29 @@ const broadcasts: BroadcastsApi = {
   },
 
   async list(vendorId?: string): Promise<VendorNotification[]> {
-    const supabase = getSupabase();
-    let q = supabase.from('notifications').select('*').order('created_at', { ascending: false });
+    let q = getSupabase().from('notifications').select('*').order('created_at', { ascending: false });
     if (vendorId) q = q.eq('vendor_id', vendorId);
-    const { data, error } = await q;
-    if (error) throw error;
-    return (data || []).map(mapNotification);
+    return (await unwrapRows(q)).map(mapNotification);
   },
 
   async listForUser(userId: string): Promise<VendorNotification[]> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('notifications')
-      .select('*')
-      .contains('recipient_ids', [userId])
-      .order('created_at', { ascending: false });
-    if (error) throw error;
-    return (data || []).map(mapNotification);
+    const rows = await unwrapRows(
+      getSupabase()
+        .from('notifications')
+        .select('*')
+        .contains('recipient_ids', [userId])
+        .order('created_at', { ascending: false }),
+    );
+    return rows.map(mapNotification);
   },
 
   async getWeeklyUsage(vendorId: string): Promise<WeeklyUsage> {
-    const supabase = getSupabase();
-    const { data, error } = await supabase
-      .from('vendor_weekly_usage')
-      .select('bucket, count')
-      .eq('vendor_id', vendorId);
-    if (error) throw error;
+    const rows = await unwrapRows(
+      getSupabase().from('vendor_weekly_usage').select('bucket, count').eq('vendor_id', vendorId),
+    );
     const usage: WeeklyUsage = {};
-    (data || []).forEach((r) => {
-      usage[(r as Row).bucket as keyof WeeklyUsage] = Number((r as Row).count);
+    rows.forEach((r: WeeklyUsageRow) => {
+      usage[r.bucket] = Number(r.count);
     });
     return usage;
   },
@@ -637,16 +667,12 @@ const subscriptions: SubscriptionsApi = {
 const notifications: NotificationsApi = {
   async registerPushToken(userId: string, token: string): Promise<void> {
     if (!userId || !token) return;
-    const supabase = getSupabase();
-    const { error } = await supabase
-      .from('push_tokens')
-      .upsert({ user_id: userId, token }, { onConflict: 'token' });
-    if (error) throw error;
+    await unwrap(
+      getSupabase().from('push_tokens').upsert({ user_id: userId, token }, { onConflict: 'token' }),
+    );
   },
   async removePushToken(_userId: string, token: string): Promise<void> {
-    const supabase = getSupabase();
-    const { error } = await supabase.from('push_tokens').delete().eq('token', token);
-    if (error) throw error;
+    await unwrap(getSupabase().from('push_tokens').delete().eq('token', token));
   },
 };
 
