@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { TextField } from '../../src/components/TextField';
@@ -22,6 +22,7 @@ import type { UserRole, VendorType } from '../../src/backend/types';
 export default function SignupScreen() {
   const { signUp } = useAuth();
   const { colors, spacing, radius } = useTheme();
+  const router = useRouter();
 
   const [role, setRole] = useState<UserRole>('user');
   const [displayName, setDisplayName] = useState('');
@@ -41,7 +42,10 @@ export default function SignupScreen() {
         vendorInfo: role === 'vendor' ? { name: vendorName, type: vendorType } : undefined,
       });
       if (needsEmailConfirmation) {
-        setNotice('Almost there — verify your email to unlock the app.');
+        setNotice('Almost there — enter the code we emailed you.');
+        // Carry the address over: sign-up may not have produced a session, so
+        // the verify screen has no user to read it from.
+        router.push({ pathname: '/(auth)/verify-email', params: { email: email.trim() } });
       }
     });
 

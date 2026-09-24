@@ -13,7 +13,7 @@ import React, {
   useState,
 } from 'react';
 import { backend } from '../../backend';
-import type { AppUser, OAuthProvider, SignInInput } from '../../backend/types';
+import type { AppUser, EmailOtpKind, OAuthProvider, SignInInput } from '../../backend/types';
 import * as authService from './authService';
 import type { SignUpParams, VendorInfo } from './authService';
 import { checkPermission } from './rbac';
@@ -37,8 +37,12 @@ interface AuthContextValue {
   signInWithMagicLink: (email: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
-  resendVerification: () => Promise<void>;
-  confirmVerification: (code: string) => Promise<void>;
+  /** Defaults to the signed-in user's address when called with no argument. */
+  resendVerification: (email?: string) => Promise<void>;
+  /** Redeem an emailed 6-digit code. Resolves to a real session. */
+  verifyEmailCode: (email: string, token: string, kind: EmailOtpKind) => Promise<void>;
+  /** Consume an auth deep link. True when it carried a session. */
+  redeemAuthLink: (url: string) => Promise<boolean>;
   refresh: () => Promise<void>;
   refreshUser: () => Promise<void>;
   signOut: () => Promise<void>;
@@ -154,22 +158,44 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [realUser, actingAs]);
 
-  const resendVerification = useCallback(async () => {
-    if (!realUser?.email) throw new Error('No email on file');
-    await authService.resendVerification(realUser.email);
-  }, [realUser?.email]);
+  const resendVerification = useCallback(
+    async (email?: string) => {
+      const target = (email ?? realUser?.email ?? '').trim();
+      if (!target) throw new Error('No email on file');
+      await authService.resendVerification(target);
+    },
+    [realUser?.email],
+  );
 
-  const confirmVerification = useCallback(
-    async (code: string) => {
-      const session = await authService.confirmVerification(code);
+  // Verifying is also the moment a vendor sign-up gets its vendor record, so
+  // both code and link paths run through ensureVendorIfNeeded.
+  const adoptVerifiedSession = useCallback(
+    async (session: { user: AppUser } | null) => {
       let user = session?.user ?? null;
-      if (user) user = (await ensureVendorIfNeeded(user)) ?? user;
-      if (user) {
-        setRealUser(user);
-        setStatus('authenticated');
-      }
+      if (!user) return false;
+      user = (await ensureVendorIfNeeded(user)) ?? user;
+      setRealUser(user);
+      setActingAs(null);
+      setStatus('authenticated');
+      return true;
     },
     [ensureVendorIfNeeded],
+  );
+
+  const verifyEmailCode = useCallback(
+    async (email: string, token: string, kind: EmailOtpKind) => {
+      const session = await authService.verifyEmailOtp(email, token, kind);
+      await adoptVerifiedSession(session);
+    },
+    [adoptVerifiedSession],
+  );
+
+  const redeemAuthLink = useCallback(
+    async (url: string) => {
+      const session = await authService.redeemAuthLink(url);
+      return adoptVerifiedSession(session);
+    },
+    [adoptVerifiedSession],
   );
 
   const upgradeToVendor = useCallback(
@@ -234,7 +260,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendPasswordReset: authService.sendPasswordReset,
       updatePassword: authService.updatePassword,
       resendVerification,
-      confirmVerification,
+      verifyEmailCode,
+      redeemAuthLink,
       refresh,
       refreshUser,
       signOut,
@@ -254,7 +281,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signUp,
       signInWithProvider,
       resendVerification,
-      confirmVerification,
+      verifyEmailCode,
+      redeemAuthLink,
       refresh,
       refreshUser,
       signOut,

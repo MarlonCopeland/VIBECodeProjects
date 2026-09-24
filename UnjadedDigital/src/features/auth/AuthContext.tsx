@@ -11,7 +11,13 @@ import React, {
   useMemo,
   useState,
 } from 'react';
-import type { AppUser, OAuthProvider, SignInInput, SignUpInput } from '../../backend/types';
+import type {
+  AppUser,
+  EmailOtpKind,
+  OAuthProvider,
+  SignInInput,
+  SignUpInput,
+} from '../../backend/types';
 import * as authService from './authService';
 
 export type AuthStatus = 'loading' | 'authenticated' | 'unauthenticated';
@@ -28,7 +34,12 @@ interface AuthContextValue {
   signInWithMagicLink: (email: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
-  resendVerification: () => Promise<void>;
+  /** Defaults to the signed-in user's address when called with no argument. */
+  resendVerification: (email?: string) => Promise<void>;
+  /** Redeem an emailed 6-digit code. Resolves to a real session. */
+  verifyEmailCode: (email: string, token: string, kind: EmailOtpKind) => Promise<void>;
+  /** Consume an auth deep link. True when it carried a session. */
+  redeemAuthLink: (url: string) => Promise<boolean>;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
   /** Locally patch the cached user (e.g. after a profile edit). */
@@ -96,10 +107,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setStatus(session?.user ? 'authenticated' : 'unauthenticated');
   }, []);
 
-  const resendVerification = useCallback(async () => {
-    if (!user?.email) throw new Error('No email on file');
-    await authService.resendVerification(user.email);
-  }, [user?.email]);
+  const resendVerification = useCallback(
+    async (email?: string) => {
+      const target = (email ?? user?.email ?? '').trim();
+      if (!target) throw new Error('No email on file');
+      await authService.resendVerification(target);
+    },
+    [user?.email],
+  );
+
+  const verifyEmailCode = useCallback(
+    async (email: string, token: string, kind: EmailOtpKind) => {
+      const session = await authService.verifyEmailOtp(email, token, kind);
+      setUserState(session.user);
+      setStatus('authenticated');
+    },
+    [],
+  );
+
+  const redeemAuthLink = useCallback(async (url: string) => {
+    const session = await authService.redeemAuthLink(url);
+    if (session?.user) {
+      setUserState(session.user);
+      setStatus('authenticated');
+      return true;
+    }
+    return false;
+  }, []);
 
   const signOut = useCallback(async () => {
     await authService.signOut();
@@ -119,11 +153,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       sendPasswordReset: authService.sendPasswordReset,
       updatePassword: authService.updatePassword,
       resendVerification,
+      verifyEmailCode,
+      redeemAuthLink,
       refresh,
       signOut,
       setUser: setUserState,
     }),
-    [status, user, signIn, signUp, signInWithProvider, refresh, resendVerification, signOut],
+    [
+      status,
+      user,
+      signIn,
+      signUp,
+      signInWithProvider,
+      refresh,
+      resendVerification,
+      verifyEmailCode,
+      redeemAuthLink,
+      signOut,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

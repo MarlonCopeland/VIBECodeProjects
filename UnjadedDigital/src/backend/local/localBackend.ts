@@ -13,6 +13,7 @@ import type {
   AuthApi,
   AuthChangeCallback,
   Backend,
+  EmailOtpKind,
   NotificationsApi,
   OAuthProvider,
   ProfileApi,
@@ -31,6 +32,8 @@ interface DbShape {
   users: StoredUser[];
   sessionUserId: string | null;
   pushTokens: { userId: string; token: string }[];
+  /** Demo password-reset codes, keyed by lowercased email. */
+  otpCodes?: Record<string, string>;
 }
 
 const DB_KEY = 'unjaded.local.db';
@@ -82,6 +85,23 @@ function makeSession(u: StoredUser): Session {
 
 function emit(session: Session | null): void {
   for (const cb of listeners) cb(session);
+}
+
+/**
+ * Demo OTP store. Lazily created so a database persisted before this existed
+ * still loads.
+ */
+function otpCodes(): Record<string, string> {
+  if (!db.otpCodes) db.otpCodes = {};
+  return db.otpCodes;
+}
+
+/** Issue a demo code and surface it, since the demo backend sends no email. */
+function issueOtp(email: string, label: string): string {
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  otpCodes()[email.trim().toLowerCase()] = code;
+  console.log(`[${label}] Demo code for ${email}: ${code}`);
+  return code;
 }
 
 async function uid(): Promise<string> {
@@ -174,8 +194,16 @@ const auth: AuthApi = {
     await load();
   },
 
-  async sendPasswordReset(_email: string): Promise<void> {
+  async sendPasswordReset(email: string): Promise<void> {
     await load();
+    // No email goes out offline, so the code is logged instead. Only issue one
+    // for a known account, matching the real backend's silence about whether an
+    // address exists.
+    const target = email.trim().toLowerCase();
+    if (db.users.some((u) => u.email.toLowerCase() === target)) {
+      issueOtp(target, 'RESET');
+      await persist();
+    }
   },
 
   async updatePassword(newPassword: string): Promise<void> {
@@ -184,6 +212,40 @@ const auth: AuthApi = {
     if (!user) throw new Error('Not signed in');
     user.password = newPassword;
     await persist();
+  },
+
+  async redeemAuthLink(_url: string): Promise<Session | null> {
+    // Demo mode never sends real emails, so there is no link to redeem.
+    await load();
+    return null;
+  },
+
+  async verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session> {
+    await load();
+    const target = email.trim().toLowerCase();
+    const user = db.users.find((u) => u.email.toLowerCase() === target);
+    if (!user) throw new Error('No account found for that email.');
+
+    // Sign-ups are auto-verified offline, so there is never a signup code to
+    // check — just hand back the session the caller is waiting for.
+    if (kind === 'signup') {
+      db.sessionUserId = user.id;
+      await persist();
+      const session = makeSession(user);
+      emit(session);
+      return session;
+    }
+
+    const expected = otpCodes()[target];
+    if (!expected || token.trim() !== expected) {
+      throw new Error('That code is not valid. Check your console for the demo code.');
+    }
+    delete otpCodes()[target];
+    db.sessionUserId = user.id;
+    await persist();
+    const session = makeSession(user);
+    emit(session);
+    return session;
   },
 
   async resendVerification(_email: string): Promise<void> {

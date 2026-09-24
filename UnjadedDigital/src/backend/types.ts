@@ -49,6 +49,9 @@ export interface Unsubscribe {
   unsubscribe: () => void;
 }
 
+/** Which emailed code is being redeemed. */
+export type EmailOtpKind = 'signup' | 'recovery';
+
 /** The auth surface every backend must provide. */
 export interface AuthApi {
   getSession(): Promise<Session | null>;
@@ -62,6 +65,20 @@ export interface AuthApi {
 
   sendPasswordReset(email: string): Promise<void>;
   updatePassword(newPassword: string): Promise<void>;
+  /**
+   * Consume an auth redirect deep link (password recovery, email confirmation)
+   * and establish whatever session it carries. Returns null when the link
+   * carries no credentials. Throws when the link is expired or malformed, so
+   * callers can show a real reason.
+   */
+  redeemAuthLink(url: string): Promise<Session | null>;
+  /**
+   * Confirm a signup, or open a password reset, using the emailed CODE instead
+   * of the link. A code works from any device; a link only works on the device
+   * that opens it, which strands anyone who signs up on one device and reads
+   * their email on another.
+   */
+  verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session>;
 
   resendVerification(email: string): Promise<void>;
 

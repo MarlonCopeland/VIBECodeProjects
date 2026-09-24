@@ -26,6 +26,10 @@ export default function ForgotPasswordScreen() {
     run(async () => {
       await sendPasswordReset(email);
       setSent(true);
+      // Hand off to the code screen. The emailed code can be read on any
+      // device, so the reset finishes here rather than depending on the link
+      // opening on this one.
+      router.push({ pathname: '/(auth)/reset-password', params: { email: email.trim() } });
     });
 
   return (
@@ -35,13 +39,13 @@ export default function ForgotPasswordScreen() {
           Reset password
         </Text>
         <Text tone="muted" style={{ marginTop: spacing.xs }}>
-          Enter your email and we&apos;ll send a reset link.
+          Enter your email and we&apos;ll send a reset code.
         </Text>
       </View>
 
       <Banner kind="error" message={error} />
       {sent ? (
-        <Banner kind="success" message="If that email exists, a reset link is on its way." />
+        <Banner kind="success" message="If that email exists, a reset code is on its way." />
       ) : null}
 
       <TextField
@@ -54,7 +58,7 @@ export default function ForgotPasswordScreen() {
         placeholder="you@example.com"
       />
 
-      <Button title="Send reset link" onPress={submit} loading={busy} />
+      <Button title="Send reset code" onPress={submit} loading={busy} />
       <View style={{ marginTop: spacing.md }}>
         <Button title="Back to sign in" variant="ghost" onPress={() => router.back()} />
       </View>

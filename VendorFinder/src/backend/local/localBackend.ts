@@ -24,6 +24,7 @@ import type {
   AuthChangeCallback,
   Backend,
   BroadcastsApi,
+  EmailOtpKind,
   FavoritesApi,
   NotificationsApi,
   OAuthProvider,
@@ -55,8 +56,10 @@ interface DbShape {
   favorites: Record<string, string[]>;
   notifications: VendorNotification[];
   pushTokens: { userId: string; token: string }[];
-  /** userId -> 6-digit code */
+  /** userId -> 6-digit signup code */
   verifyCodes: Record<string, string>;
+  /** lowercased email -> 6-digit password-reset code */
+  resetCodes?: Record<string, string>;
   sessionUserId: string | null;
 }
 
@@ -226,6 +229,15 @@ async function uid(): Promise<string> {
   return Crypto.randomUUID();
 }
 
+/**
+ * Demo reset-code store. Lazily created so a database persisted before this
+ * existed still loads.
+ */
+function resetCodes(): Record<string, string> {
+  if (!db.resetCodes) db.resetCodes = {};
+  return db.resetCodes;
+}
+
 function setVerifyCode(userId: string): string {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   db.verifyCodes[userId] = code;
@@ -336,8 +348,17 @@ const auth: AuthApi = {
     await load();
   },
 
-  async sendPasswordReset(_email: string): Promise<void> {
+  async sendPasswordReset(email: string): Promise<void> {
     await load();
+    // No email goes out offline, so the code is logged instead. Only issue one
+    // for a known account, matching the real backend's silence about whether an
+    // address exists.
+    const target = email.trim().toLowerCase();
+    if (!db.users.some((u) => u.email.toLowerCase() === target)) return;
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    resetCodes()[target] = code;
+    console.log(`[RESET] Demo password-reset code for ${target}: ${code}`);
+    await persist();
   },
 
   async updatePassword(newPassword: string): Promise<void> {
@@ -357,18 +378,40 @@ const auth: AuthApi = {
     await persist();
   },
 
-  async confirmVerification(code: string): Promise<Session | null> {
+  async redeemAuthLink(_url: string): Promise<Session | null> {
+    // Demo mode never sends real emails, so there is no link to redeem; the
+    // screens fall back to asking for the code logged to the console.
     await load();
-    const userId = db.sessionUserId;
-    if (!userId) throw new Error('Not signed in');
-    const expected = db.verifyCodes[userId];
-    if (!code || String(code).trim() !== expected) {
-      throw new Error('Invalid verification code');
+    return null;
+  },
+
+  async verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session> {
+    await load();
+    const entered = token.trim();
+    const target = email.trim().toLowerCase();
+    // Fall back to the session user: a signed-up-but-unverified demo user is
+    // already signed in, and may not have retyped their address.
+    const user =
+      db.users.find((u) => u.email.toLowerCase() === target) ??
+      db.users.find((u) => u.id === db.sessionUserId);
+    if (!user) throw new Error('No account found for that email.');
+
+    if (kind === 'recovery') {
+      const expected = resetCodes()[user.email.toLowerCase()];
+      if (!expected || entered !== expected) {
+        throw new Error('That reset code is not valid. Check the console for the demo code.');
+      }
+      delete resetCodes()[user.email.toLowerCase()];
+    } else {
+      const expected = db.verifyCodes[user.id];
+      if (!expected || entered !== expected) {
+        throw new Error('That confirmation code is not valid. Check the console for the demo code.');
+      }
+      user.emailVerified = true;
+      delete db.verifyCodes[user.id];
     }
-    const user = db.users.find((u) => u.id === userId);
-    if (!user) throw new Error('User not found');
-    user.emailVerified = true;
-    delete db.verifyCodes[userId];
+
+    db.sessionUserId = user.id;
     await persist();
     const session = makeSession(user);
     emitAuth(session);

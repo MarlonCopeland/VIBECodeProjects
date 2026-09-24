@@ -22,6 +22,7 @@ import type {
   AuthChangeCallback,
   Backend,
   BroadcastsApi,
+  EmailOtpKind,
   FavoritesApi,
   NotificationsApi,
   OAuthProvider,
@@ -47,6 +48,30 @@ import type {
 WebBrowser.maybeCompleteAuthSession();
 
 const AVATAR_BUCKET = 'avatars';
+
+/**
+ * Pull the auth parameters out of a redirect deep link. Supabase puts them in
+ * the FRAGMENT for the implicit flow (`vendorfinder://reset-password#access_token=...`)
+ * and in the QUERY for PKCE (`?code=...`), so both halves are collected.
+ */
+function parseAuthLinkParams(url: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  const collect = (segment: string) => {
+    for (const pair of segment.split('&')) {
+      if (!pair) continue;
+      const index = pair.indexOf('=');
+      const key = index === -1 ? pair : pair.slice(0, index);
+      const value = index === -1 ? '' : pair.slice(index + 1);
+      if (key) out[decodeURIComponent(key)] = value;
+    }
+  };
+  const hashIndex = url.indexOf('#');
+  const withoutHash = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  if (hashIndex !== -1) collect(url.slice(hashIndex + 1));
+  const queryIndex = withoutHash.indexOf('?');
+  if (queryIndex !== -1) collect(withoutHash.slice(queryIndex + 1));
+  return out;
+}
 
 /** Generic row payload, for writes where the column set is built dynamically. */
 type Row = Record<string, unknown>;
@@ -371,10 +396,68 @@ const auth: AuthApi = {
     if (error) throw error;
   },
 
-  // Supabase confirms via the email link; re-reading the session picks up the
-  // new `email_confirmed_at`. The `code` argument is ignored here.
-  async confirmVerification(_code: string): Promise<Session | null> {
-    return auth.refreshSession();
+  async redeemAuthLink(url: string): Promise<Session | null> {
+    const supabase = getSupabase();
+    const params = parseAuthLinkParams(url);
+
+    // Supabase reports failures (expired/used link) as query params on the
+    // redirect rather than an HTTP error, so surface them as real errors.
+    const failure = params.error_description || params.error;
+    if (failure) throw new Error(decodeURIComponent(failure.replace(/\+/g, ' ')));
+
+    // Implicit flow: the redirect fragment carries the tokens directly.
+    if (params.access_token && params.refresh_token) {
+      const { data, error } = await supabase.auth.setSession({
+        access_token: params.access_token,
+        refresh_token: params.refresh_token,
+      });
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    // PKCE flow: exchange the one-time code.
+    if (params.code) {
+      const { data, error } = await supabase.auth.exchangeCodeForSession(params.code);
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    // Newer email templates can hand back a hashed OTP instead.
+    if (params.token_hash && params.type) {
+      const { data, error } = await supabase.auth.verifyOtp({
+        token_hash: params.token_hash,
+        type: params.type as 'recovery' | 'signup' | 'email' | 'invite' | 'magiclink',
+      });
+      if (error) throw error;
+      return sessionFromSb(data.session);
+    }
+
+    return null;
+  },
+
+  async verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session> {
+    const supabase = getSupabase();
+    const code = token.replace(/[^0-9A-Za-z]/g, '');
+    // 'signup' is the type Supabase mints for confirmation codes, but projects
+    // on the newer email flow issue 'email' instead. Try the specific one and
+    // fall back, rather than telling the user a valid code is invalid.
+    const attempts: string[] = kind === 'signup' ? ['signup', 'email'] : ['recovery'];
+    let lastError: Error | null = null;
+    for (const type of attempts) {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email: email.trim(),
+        token: code,
+        type: type as 'signup' | 'email' | 'recovery',
+      });
+      if (!error) {
+        const session = await sessionFromSb(data.session);
+        if (session) return session;
+        lastError = new Error('That code was accepted but no session came back. Try signing in.');
+        break;
+      }
+      lastError = new Error(error.message);
+    }
+    throw lastError ?? new Error('Could not verify that code.');
   },
 
   async signOut(): Promise<void> {
