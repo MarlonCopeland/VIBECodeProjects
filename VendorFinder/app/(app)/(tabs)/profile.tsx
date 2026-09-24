@@ -17,7 +17,7 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useVendors } from '../../../src/features/vendors/VendorContext';
 import { profileService } from '../../../src/features/profile';
 import { isFeatureEnabled } from '../../../src/config/features';
-import { toAppError } from '../../../src/lib/errors';
+import { useAsyncAction } from '../../../src/lib/useAsyncAction';
 
 export default function ProfileScreen() {
   const { user, realUser, setUser, signOut, upgradeToVendor } = useAuth();
@@ -28,26 +28,19 @@ export default function ProfileScreen() {
   const [interest, setInterest] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [showUpgrade, setShowUpgrade] = useState(false);
-  const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
+  const { error, busy, run } = useAsyncAction();
 
   const interests = user?.interests ?? [];
   const followed = useMemo(() => vendors.filter((v) => favorites.includes(v.id)), [vendors, favorites]);
   // Only the real, un-impersonated user should mutate their own account here.
   const canEditOwn = !!user && user.id === realUser?.id;
 
-  const saveInterests = async (next: string[]) => {
+  const saveInterests = (next: string[]) => {
     if (!user) return;
-    setError('');
-    setBusy(true);
-    try {
-      const updated = await profileService.updateProfile(user.id, { interests: next });
-      setUser(updated);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setBusy(false);
-    }
+    const userId = user.id;
+    return run(async () => {
+      setUser(await profileService.updateProfile(userId, { interests: next }));
+    });
   };
 
   const addInterest = () => {
@@ -57,18 +50,11 @@ export default function ProfileScreen() {
     void saveInterests([...interests, tag]);
   };
 
-  const becomeVendor = async () => {
-    setError('');
-    setBusy(true);
-    try {
+  const becomeVendor = () =>
+    run(async () => {
       await upgradeToVendor({ name: vendorName.trim() || `${user?.displayName}'s Stand` });
       setShowUpgrade(false);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   return (
     <Screen scroll>

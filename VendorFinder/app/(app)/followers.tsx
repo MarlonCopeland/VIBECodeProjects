@@ -12,7 +12,7 @@ import { Banner } from '../../src/components/Banner';
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { useAuth } from '../../src/features/auth/AuthContext';
 import { vendorToolsService } from '../../src/features/vendorTools';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 import type { AppUser, Vendor } from '../../src/backend/types';
 
 export default function FollowersScreen() {
@@ -21,39 +21,28 @@ export default function FollowersScreen() {
 
   const [vendor, setVendor] = useState<Vendor | null>(null);
   const [followers, setFollowers] = useState<AppUser[]>([]);
-  const [error, setError] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // Each row spins on its own, keyed by the follower's id.
+  const { error, isBusy, run } = useAsyncAction();
 
-  const load = useCallback(async () => {
+  // Plain fetch: it throws, and every caller runs it inside run().
+  const fetchFollowers = useCallback(async () => {
     if (!user) return;
-    setError('');
-    try {
-      const v = await vendorToolsService.getByOwner(user.id);
-      setVendor(v);
-      if (v) setFollowers(await vendorToolsService.listFollowers(v.id));
-    } catch (e) {
-      setError(toAppError(e).message);
-    }
+    const v = await vendorToolsService.getByOwner(user.id);
+    setVendor(v);
+    if (v) setFollowers(await vendorToolsService.listFollowers(v.id));
   }, [user]);
 
   useFocusEffect(
     useCallback(() => {
-      void load();
-    }, [load]),
+      void run(fetchFollowers);
+    }, [run, fetchFollowers]),
   );
 
-  const act = async (fn: () => Promise<void>, id: string) => {
-    setError('');
-    setBusyId(id);
-    try {
+  const act = (fn: () => Promise<void>, id: string) =>
+    run(async () => {
       await fn();
-      await load();
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setBusyId(null);
-    }
-  };
+      await fetchFollowers();
+    }, id);
 
   const blocked = vendor?.blockedUserIds ?? [];
 
@@ -89,7 +78,7 @@ export default function FollowersScreen() {
                 <Button
                   title="Remove"
                   variant="secondary"
-                  loading={busyId === item.id}
+                  loading={isBusy(item.id)}
                   onPress={() => vendor && void act(() => vendorToolsService.removeFollower(vendor.id, item.id), item.id)}
                 />
               </View>
@@ -97,7 +86,7 @@ export default function FollowersScreen() {
                 <Button
                   title="Block"
                   variant="danger"
-                  loading={busyId === item.id}
+                  loading={isBusy(item.id)}
                   onPress={() => vendor && void act(() => vendorToolsService.blockFollower(vendor.id, item.id), item.id)}
                 />
               </View>
@@ -120,7 +109,7 @@ export default function FollowersScreen() {
                       title="Unblock"
                       variant="secondary"
                       fullWidth={false}
-                      loading={busyId === uid}
+                      loading={isBusy(uid)}
                       onPress={() => vendor && void act(() => vendorToolsService.unblockFollower(vendor.id, uid), uid)}
                     />
                   </View>

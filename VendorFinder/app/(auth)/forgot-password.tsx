@@ -11,7 +11,7 @@ import { Button } from '../../src/components/Button';
 import { Banner } from '../../src/components/Banner';
 import { useAuth } from '../../src/features/auth/AuthContext';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 
 export default function ForgotPasswordScreen() {
   const { sendPasswordReset } = useAuth();
@@ -19,22 +19,18 @@ export default function ForgotPasswordScreen() {
   const router = useRouter();
 
   const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
   const [sent, setSent] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const { error, busy, run } = useAsyncAction();
 
-  const submit = async () => {
-    setError('');
-    setLoading(true);
-    try {
+  const submit = () =>
+    run(async () => {
       await sendPasswordReset(email);
       setSent(true);
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+      // Hand off to the code screen. The emailed code can be read on any
+      // device, so the reset finishes here rather than depending on the link
+      // opening on this one.
+      router.push({ pathname: '/(auth)/reset-password', params: { email: email.trim() } });
+    });
 
   return (
     <Screen scroll center>
@@ -43,13 +39,13 @@ export default function ForgotPasswordScreen() {
           Reset password
         </Text>
         <Text tone="muted" style={{ marginTop: spacing.xs }}>
-          Enter your email and we&apos;ll send a reset link.
+          Enter your email and we&apos;ll send a reset code.
         </Text>
       </View>
 
       <Banner kind="error" message={error} />
       {sent ? (
-        <Banner kind="success" message="If that email exists, a reset link is on its way." />
+        <Banner kind="success" message="If that email exists, a reset code is on its way." />
       ) : null}
 
       <TextField
@@ -62,7 +58,7 @@ export default function ForgotPasswordScreen() {
         placeholder="you@example.com"
       />
 
-      <Button title="Send reset link" onPress={submit} loading={loading} />
+      <Button title="Send reset code" onPress={submit} loading={busy} />
       <View style={{ marginTop: spacing.md }}>
         <Button title="Back to sign in" variant="ghost" onPress={() => router.back()} />
       </View>

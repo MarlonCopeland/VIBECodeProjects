@@ -155,9 +155,35 @@ Every call flows through `src/backend/index.ts` →
 - **Authentication → Providers → Email**: enabled, and **"Confirm email" ON**.
   The app blocks every feature until the email is verified, so confirmation must
   be on (turn it back on now if you disabled it for the smoke test).
-- **Authentication → Email Templates → Confirm signup**: the link returns the
-  user to the app; the app detects the verified status and unlocks the UI.
 - OAuth sign-ins arrive already verified and pass the gate immediately.
+
+### The email templates must include the CODE
+
+The app confirms signups and password resets with a **6-digit code**, not just a
+link — a link only works on the device that opens it, which strands anyone who
+signs up on an emulator and reads email on their phone. Supabase only puts the
+code in the email if the template asks for it, via `{{ .Token }}`.
+
+Edit both templates under **Authentication → Email Templates**:
+
+| Template | Must contain |
+|---|---|
+| **Confirm signup** | `{{ .Token }}` |
+| **Reset password** | `{{ .Token }}` |
+
+For example, in **Confirm signup**:
+
+```html
+<h2>Confirm your email</h2>
+<p>Enter this code in the app:</p>
+<p style="font-size:28px;letter-spacing:4px"><b>{{ .Token }}</b></p>
+<p>Or, on this device, <a href="{{ .ConfirmationURL }}">tap here</a>.</p>
+```
+
+Keep `{{ .ConfirmationURL }}` too — the app still redeems the link as a
+same-device fast path. **If you leave the templates at their link-only default,
+the code screens will reject every code the user types**, because no code was
+ever sent.
 
 ## 2.2 Redirect URLs
 
@@ -165,11 +191,15 @@ Every call flows through `src/backend/index.ts` →
 
 ```
 vendorfinder://auth-callback
+vendorfinder://reset-password
+vendorfinder://verify-email
 http://localhost:8081
 https://YOUR-WEB-DOMAIN        # your deployed PWA, once you have one
 ```
 
-`vendorfinder` is the app scheme (`app.config.js`).
+`vendorfinder` is the app scheme (`app.config.js`). The reset/verify entries are
+the same-device link fast path — the 6-digit code works without them, but the
+emailed link will not.
 
 ## 2.3 Google / Facebook OAuth (optional)
 
@@ -207,10 +237,11 @@ happens in Edge Functions.
    STRIPE_PRICE_TIER3=price_...
    ```
 
-> Tier prices/quotas are also encoded in **`src/features/payments/tiers.ts`**. To
-> change what a tier includes (or move the 10-follower gate), edit that one file
-> — and mirror it in **`supabase/functions/_shared/tiers.ts`** so server-side
-> enforcement matches.
+> Tier quotas and the 10-follower gate live in
+> **`supabase/functions/_shared/quotaEngine.ts`** — one file, imported by both the
+> app and the `send-notification` Edge Function, so client and server always
+> agree. Edit quotas there; edit display names, price labels, and Stripe price
+> ids in **`src/features/payments/tiers.ts`**.
 
 ## 3.2 Deploy the Edge Functions
 

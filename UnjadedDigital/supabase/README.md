@@ -32,10 +32,24 @@ This creates:
 
 - **Email**: enable "Confirm email" (Authentication → Providers → Email) to
   match the template's verification flow.
+- **Email Templates**: the app confirms signups and password resets with a
+  **6-digit code**, so both the **Confirm signup** and **Reset password**
+  templates must include `{{ .Token }}`:
+
+  ```html
+  <p>Enter this code in the app:</p>
+  <p style="font-size:28px;letter-spacing:4px"><b>{{ .Token }}</b></p>
+  <p>Or, on this device, <a href="{{ .ConfirmationURL }}">tap here</a>.</p>
+  ```
+
+  Keep `{{ .ConfirmationURL }}` as the same-device link fast path. Left at the
+  link-only default, no code is ever sent and the code screens will reject
+  everything the user types.
 - **OAuth**: enable Google / Apple under Authentication → Providers, then add
   the redirect URL `unjadeddigital://` (your app scheme) to the allow list.
-- **Redirect URLs**: add your app scheme (`unjadeddigital://`) and, for web,
-  your `WEB_BASE_URL`.
+- **Redirect URLs**: add your app scheme (`unjadeddigital://`), plus
+  `unjadeddigital://reset-password` and `unjadeddigital://verify-email` for the
+  link fast path, and for web your `WEB_BASE_URL`.
 
 ## 4. (Optional) Payments
 

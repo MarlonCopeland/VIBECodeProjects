@@ -9,6 +9,8 @@
 
 import * as Crypto from 'expo-crypto';
 import { storage } from '../../lib/storage';
+import { applyVendorFilter } from '../vendorFilter';
+import { createFollowerActions } from '../followerActions';
 import {
   canSend,
   bucketsForSend,
@@ -22,6 +24,7 @@ import type {
   AuthChangeCallback,
   Backend,
   BroadcastsApi,
+  EmailOtpKind,
   FavoritesApi,
   NotificationsApi,
   OAuthProvider,
@@ -53,8 +56,10 @@ interface DbShape {
   favorites: Record<string, string[]>;
   notifications: VendorNotification[];
   pushTokens: { userId: string; token: string }[];
-  /** userId -> 6-digit code */
+  /** userId -> 6-digit signup code */
   verifyCodes: Record<string, string>;
+  /** lowercased email -> 6-digit password-reset code */
+  resetCodes?: Record<string, string>;
   sessionUserId: string | null;
 }
 
@@ -224,6 +229,15 @@ async function uid(): Promise<string> {
   return Crypto.randomUUID();
 }
 
+/**
+ * Demo reset-code store. Lazily created so a database persisted before this
+ * existed still loads.
+ */
+function resetCodes(): Record<string, string> {
+  if (!db.resetCodes) db.resetCodes = {};
+  return db.resetCodes;
+}
+
 function setVerifyCode(userId: string): string {
   const code = String(Math.floor(100000 + Math.random() * 900000));
   db.verifyCodes[userId] = code;
@@ -334,8 +348,17 @@ const auth: AuthApi = {
     await load();
   },
 
-  async sendPasswordReset(_email: string): Promise<void> {
+  async sendPasswordReset(email: string): Promise<void> {
     await load();
+    // No email goes out offline, so the code is logged instead. Only issue one
+    // for a known account, matching the real backend's silence about whether an
+    // address exists.
+    const target = email.trim().toLowerCase();
+    if (!db.users.some((u) => u.email.toLowerCase() === target)) return;
+    const code = String(Math.floor(100000 + Math.random() * 900000));
+    resetCodes()[target] = code;
+    console.log(`[RESET] Demo password-reset code for ${target}: ${code}`);
+    await persist();
   },
 
   async updatePassword(newPassword: string): Promise<void> {
@@ -355,18 +378,40 @@ const auth: AuthApi = {
     await persist();
   },
 
-  async confirmVerification(code: string): Promise<Session | null> {
+  async redeemAuthLink(_url: string): Promise<Session | null> {
+    // Demo mode never sends real emails, so there is no link to redeem; the
+    // screens fall back to asking for the code logged to the console.
     await load();
-    const userId = db.sessionUserId;
-    if (!userId) throw new Error('Not signed in');
-    const expected = db.verifyCodes[userId];
-    if (!code || String(code).trim() !== expected) {
-      throw new Error('Invalid verification code');
+    return null;
+  },
+
+  async verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session> {
+    await load();
+    const entered = token.trim();
+    const target = email.trim().toLowerCase();
+    // Fall back to the session user: a signed-up-but-unverified demo user is
+    // already signed in, and may not have retyped their address.
+    const user =
+      db.users.find((u) => u.email.toLowerCase() === target) ??
+      db.users.find((u) => u.id === db.sessionUserId);
+    if (!user) throw new Error('No account found for that email.');
+
+    if (kind === 'recovery') {
+      const expected = resetCodes()[user.email.toLowerCase()];
+      if (!expected || entered !== expected) {
+        throw new Error('That reset code is not valid. Check the console for the demo code.');
+      }
+      delete resetCodes()[user.email.toLowerCase()];
+    } else {
+      const expected = db.verifyCodes[user.id];
+      if (!expected || entered !== expected) {
+        throw new Error('That confirmation code is not valid. Check the console for the demo code.');
+      }
+      user.emailVerified = true;
+      delete db.verifyCodes[user.id];
     }
-    const user = db.users.find((u) => u.id === userId);
-    if (!user) throw new Error('User not found');
-    user.emailVerified = true;
-    delete db.verifyCodes[userId];
+
+    db.sessionUserId = user.id;
     await persist();
     const session = makeSession(user);
     emitAuth(session);
@@ -457,25 +502,7 @@ const users: UsersApi = {
 const vendors: VendorsApi = {
   async list(filter: VendorFilter = {}): Promise<Vendor[]> {
     await load();
-    let result = db.vendors;
-    if (filter.viewerUserId) {
-      const viewer = filter.viewerUserId;
-      result = result.filter((v) => !(v.blockedUserIds || []).includes(viewer));
-    }
-    if (filter.query) {
-      const q = filter.query.toLowerCase();
-      result = result.filter(
-        (v) =>
-          v.name.toLowerCase().includes(q) ||
-          v.type.toLowerCase().includes(q) ||
-          (v.description || '').toLowerCase().includes(q) ||
-          (v.tags || []).some((t) => t.toLowerCase().includes(q)),
-      );
-    }
-    if (filter.type) result = result.filter((v) => v.type === filter.type);
-    if (filter.tag) result = result.filter((v) => (v.tags || []).includes(filter.tag!));
-    if (filter.openOnly) result = result.filter((v) => v.isOpen);
-    return result;
+    return applyVendorFilter(db.vendors, filter);
   },
 
   async get(id: string): Promise<Vendor | null> {
@@ -578,29 +605,11 @@ const favorites: FavoritesApi = {
     return db.users.filter((u) => followerIds.includes(u.id)).map(publicUser);
   },
 
-  async blockFollower(vendorId: string, userId: string): Promise<void> {
-    await load();
-    const vendor = db.vendors.find((v) => v.id === vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    const blocked = new Set(vendor.blockedUserIds || []);
-    blocked.add(userId);
-    await vendors.update(vendorId, { blockedUserIds: [...blocked] });
-    await favorites.remove(userId, vendorId);
-  },
-
-  async unblockFollower(vendorId: string, userId: string): Promise<void> {
-    await load();
-    const vendor = db.vendors.find((v) => v.id === vendorId);
-    if (!vendor) throw new Error('Vendor not found');
-    await vendors.update(vendorId, {
-      blockedUserIds: (vendor.blockedUserIds || []).filter((id) => id !== userId),
-    });
-  },
-
-  async removeFollower(vendorId: string, userId: string): Promise<void> {
-    // Force an unfollow without blocking re-following.
-    await favorites.remove(userId, vendorId);
-  },
+  ...createFollowerActions({
+    getVendor: (id) => vendors.get(id),
+    updateVendor: (id, patch) => vendors.update(id, patch),
+    removeFavorite: (userId, vendorId) => favorites.remove(userId, vendorId),
+  }),
 };
 
 // =========================================================================

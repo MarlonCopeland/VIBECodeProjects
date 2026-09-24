@@ -5,6 +5,7 @@
 
 import { backend } from '../../backend';
 import type {
+  EmailOtpKind,
   AppUser,
   OAuthProvider,
   Session,
@@ -92,8 +93,20 @@ export async function resendVerification(email: string): Promise<void> {
   return backend.auth.resendVerification(email);
 }
 
-export async function confirmVerification(code: string): Promise<Session | null> {
-  return backend.auth.confirmVerification(code);
+export async function verifyEmailOtp(
+  email: string,
+  token: string,
+  kind: EmailOtpKind,
+): Promise<Session> {
+  const check = validateEmail(email);
+  if (!check.valid) throw new Error(check.message);
+  const code = token.replace(/[^0-9A-Za-z]/g, '');
+  if (code.length < 6) throw new Error('That code looks too short — check your email.');
+  return backend.auth.verifyEmailOtp(email, code, kind);
+}
+
+export async function redeemAuthLink(url: string): Promise<Session | null> {
+  return backend.auth.redeemAuthLink(url);
 }
 
 export async function signOut(): Promise<void> {

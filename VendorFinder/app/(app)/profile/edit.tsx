@@ -14,7 +14,7 @@ import { Avatar } from '../../../src/components/Avatar';
 import { useAuth } from '../../../src/features/auth/AuthContext';
 import { useTheme } from '../../../src/theme/ThemeProvider';
 import { profileService } from '../../../src/features/profile';
-import { toAppError } from '../../../src/lib/errors';
+import { useAsyncAction } from '../../../src/lib/useAsyncAction';
 
 export default function EditProfileScreen() {
   const { user, setUser } = useAuth();
@@ -24,44 +24,30 @@ export default function EditProfileScreen() {
   const [displayName, setDisplayName] = useState(user?.displayName ?? '');
   const [bio, setBio] = useState((user?.metadata?.bio as string) ?? '');
   const [avatarUrl, setAvatarUrl] = useState(user?.avatarUrl ?? null);
-  const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [uploading, setUploading] = useState(false);
+  // Photo upload and save spin independently but share one error banner.
+  const { error, isBusy, run } = useAsyncAction();
 
   if (!user) return null;
+  const currentUser = user;
 
-  const changeAvatar = async () => {
-    setError('');
-    setUploading(true);
-    try {
-      const updated = await profileService.pickAndUploadAvatar(user.id);
+  const changeAvatar = () =>
+    run(async () => {
+      const updated = await profileService.pickAndUploadAvatar(currentUser.id);
       if (updated) {
         setAvatarUrl(updated.avatarUrl);
         setUser(updated);
       }
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setUploading(false);
-    }
-  };
+    }, 'upload');
 
-  const save = async () => {
-    setError('');
-    setSaving(true);
-    try {
-      const updated = await profileService.updateProfile(user.id, {
+  const save = () =>
+    run(async () => {
+      const updated = await profileService.updateProfile(currentUser.id, {
         displayName,
-        metadata: { ...user.metadata, bio },
+        metadata: { ...currentUser.metadata, bio },
       });
       setUser(updated);
       router.back();
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setSaving(false);
-    }
-  };
+    }, 'save');
 
   return (
     <Screen scroll>
@@ -74,7 +60,7 @@ export default function EditProfileScreen() {
             title="Change photo"
             variant="ghost"
             fullWidth={false}
-            loading={uploading}
+            loading={isBusy('upload')}
             onPress={changeAvatar}
           />
         </View>
@@ -96,7 +82,7 @@ export default function EditProfileScreen() {
         numberOfLines={3}
       />
 
-      <Button title="Save changes" onPress={save} loading={saving} />
+      <Button title="Save changes" onPress={save} loading={isBusy('save')} />
     </Screen>
   );
 }

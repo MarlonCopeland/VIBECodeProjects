@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["--prefix", "LegendNetworkingApp", "run", "web"],
       "port": 8081
+    },
+    {
+      "name": "vendorfinder-web",
+      "runtimeExecutable": "cmd",
+      "runtimeArgs": ["/c", ".claude\\run-vendorfinder-web.cmd"],
+      "port": 8082
     }
   ]
 }

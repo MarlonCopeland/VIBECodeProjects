@@ -13,19 +13,45 @@ domain.
 
 ---
 
-## 1. Tech stack
+## 1. Tech stack & services
 
-- **Framework:** Expo SDK 52, React Native 0.76, React 18, **TypeScript**.
-- **Navigation:** **Expo Router** (file-based, typed routes) under `app/`.
-- **Backend:** swappable via `APP_BACKEND` — `local` (AsyncStorage/localStorage,
-  offline) or `supabase` (Postgres + Auth + Realtime + Edge Functions).
-- **Auth:** email/password + OAuth (Google/Apple), email-verification gate,
-  SecureStore sessions. Local demo auth is offline (console verification code).
-- **Payments:** Stripe Checkout via Supabase Edge Functions behind a pluggable
-  `PaymentProvider`; a local mock applies tiers instantly.
-- **Location:** `expo-location` with a mock LA fallback + Haversine distance.
-- **Notifications:** typed vendor→follower broadcasts; local + Expo Push.
-- **Config:** env-injected via `app.config.js` → `expo-constants` (`src/config/env.ts`).
+### Stack
+
+| Layer | What we use |
+| ----- | ----------- |
+| **Framework** | Expo **SDK 52**, React Native 0.76, React 18, **TypeScript 5.3** |
+| **Navigation** | **Expo Router 4** — file-based, typed routes under `app/` |
+| **Runtime** | **Node 18–20** (`.nvmrc` = 20). SDK 52's CLI config loader breaks on Node 22+ |
+| **Backend** | Swappable via `APP_BACKEND` — `local` (AsyncStorage/localStorage, offline) or `supabase` |
+| **Auth** | Email/password + OAuth (Google/Apple), email-verification gate, SecureStore sessions. Verify/reset screens accept a **code** so the flow works across devices; the local backend logs it to the console (`[VERIFY] …`). ⚠️ **Not yet live on Supabase** — see below |
+| **Location** | `expo-location`, Haversine distance, mock LA fallback |
+| **Config** | Env-injected via `app.config.js` → `expo-constants` (`src/config/env.ts`) |
+| **Checks** | `npm run typecheck`, `npm run smoke:supabase`, `npm run test:quota` |
+
+### Services
+
+| Service | Used for | Notes |
+| ------- | -------- | ----- |
+| **Supabase** (`dpavkiyozlamuqhdemmr`, us-east-1, Postgres 17) | Auth, Postgres, Storage, Realtime, Edge Functions | RLS on every table |
+| **Stripe** | Subscription tiers | Checkout + Customer Portal, driven by three Edge Functions; behind a pluggable `PaymentProvider` so a local mock applies tiers instantly |
+| **Expo Push** | Vendor→follower broadcasts | Tokens in `push_tokens`; quota enforced server-side |
+| **EAS Build / Submit** | iOS + Android builds | See [`DEPLOYMENT.md`](./DEPLOYMENT.md) |
+
+**Postgres:** `profiles`, `vendors`, `favorites`, `notifications`, `push_tokens`,
+plus the `vendor_weekly_usage` view. **Storage:** one public `avatars` bucket.
+**Edge Functions:** `create-checkout-session`, `customer-portal`,
+`stripe-webhook`, `send-notification`.
+
+> ⚠️ **Outstanding:** the code-based verify/reset screens are built, but this
+> project's Supabase auth emails are still Supabase's link-only defaults — there
+> is no `supabase/templates/` and no `[auth.email.template.*]` in
+> `supabase/config.toml`, so the code fields have nothing to accept. Port
+> Legend's templates (which lead with `{{ .Token }}`), pin `otp_length`, and
+> `supabase config push`. Until then verification and reset work by link only.
+
+> Only **public** values ever reach the client (anon key, Stripe publishable
+> key, URLs). The service-role and Stripe secret keys live in Edge Function env,
+> never in the app or a committed `.env`.
 
 ## 2. How to run
 

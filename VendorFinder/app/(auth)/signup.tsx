@@ -5,7 +5,7 @@
 
 import { useState } from 'react';
 import { Pressable, View } from 'react-native';
-import { Link } from 'expo-router';
+import { Link, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { TextField } from '../../src/components/TextField';
@@ -16,12 +16,13 @@ import { PasswordStrengthMeter } from '../../src/features/auth/components/Passwo
 import { SocialAuthButtons } from '../../src/features/auth/components/SocialAuthButtons';
 import { VENDOR_TYPES } from '../../src/features/vendors';
 import { useTheme } from '../../src/theme/ThemeProvider';
-import { toAppError } from '../../src/lib/errors';
+import { useAsyncAction } from '../../src/lib/useAsyncAction';
 import type { UserRole, VendorType } from '../../src/backend/types';
 
 export default function SignupScreen() {
   const { signUp } = useAuth();
   const { colors, spacing, radius } = useTheme();
+  const router = useRouter();
 
   const [role, setRole] = useState<UserRole>('user');
   const [displayName, setDisplayName] = useState('');
@@ -29,15 +30,10 @@ export default function SignupScreen() {
   const [password, setPassword] = useState('');
   const [vendorName, setVendorName] = useState('');
   const [vendorType, setVendorType] = useState<VendorType>('Food');
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [loading, setLoading] = useState(false);
+  const { error, notice, busy, run, setError, setNotice } = useAsyncAction();
 
-  const submit = async () => {
-    setError('');
-    setNotice('');
-    setLoading(true);
-    try {
+  const submit = () =>
+    run(async () => {
       const { needsEmailConfirmation } = await signUp({
         displayName,
         email,
@@ -46,14 +42,12 @@ export default function SignupScreen() {
         vendorInfo: role === 'vendor' ? { name: vendorName, type: vendorType } : undefined,
       });
       if (needsEmailConfirmation) {
-        setNotice('Almost there — verify your email to unlock the app.');
+        setNotice('Almost there — enter the code we emailed you.');
+        // Carry the address over: sign-up may not have produced a session, so
+        // the verify screen has no user to read it from.
+        router.push({ pathname: '/(auth)/verify-email', params: { email: email.trim() } });
       }
-    } catch (e) {
-      setError(toAppError(e).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+    });
 
   return (
     <Screen scroll center>
@@ -159,7 +153,7 @@ export default function SignupScreen() {
         </View>
       ) : null}
 
-      <Button title="Create account" onPress={submit} loading={loading} />
+      <Button title="Create account" onPress={submit} loading={busy} />
 
       <SocialAuthButtons onError={setError} />
 

@@ -23,6 +23,11 @@ function RootNavigator() {
     SplashScreen.hideAsync().catch(() => {});
 
     const group = segments[0]; // '(auth)' | '(app)' | undefined
+    const route = segments.join('/');
+    // A recovery code or link signs the user in for real, so without this
+    // exemption the gate would fling them into the tabs the instant it is
+    // redeemed — before they ever get to type the new password.
+    const settingNewPassword = route === '(auth)/reset-password';
     const inAuthGroup = group === '(auth)';
     const inAppGroup = group === '(app)';
 
@@ -30,9 +35,11 @@ function RootNavigator() {
       // Push anyone signed out (including the index splash) to login.
       if (!inAuthGroup) router.replace('/(auth)/login');
     } else if (status === 'authenticated') {
-      if (needsVerification) {
+      if (settingNewPassword) {
+        // Let the reset screen finish; it routes onward itself.
+      } else if (needsVerification) {
         // Pin unverified users to the verification screen.
-        if (segments.join('/') !== '(auth)/verify-email') {
+        if (route !== '(auth)/verify-email') {
           router.replace('/(auth)/verify-email');
         }
       } else if (!inAppGroup) {

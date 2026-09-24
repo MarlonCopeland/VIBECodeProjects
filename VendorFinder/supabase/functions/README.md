@@ -8,8 +8,11 @@
 | `stripe-webhook` | Persists `subscription_tier`/status from Stripe events. Must be public. | `supabase functions deploy stripe-webhook --no-verify-jwt` |
 
 Shared:
-- `_shared/tiers.ts` — Deno port of the quota engine. **Keep in sync with
-  `src/features/payments/tiers.ts`.**
+- `_shared/quotaEngine.ts` — the quota engine itself: tier limits plus the
+  `canSend` decision. Imported by BOTH this function and the app
+  (`src/features/payments/tiers.ts` wraps it with UI metadata), so server and
+  client enforcement cannot drift. It has no imports on purpose — keep it
+  runtime-agnostic so both Deno and Metro can load it.
 - `_shared/cors.ts` — CORS headers + JSON helper.
 
 Secrets (set via `supabase secrets set NAME=value`):
