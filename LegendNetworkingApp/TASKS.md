@@ -374,20 +374,125 @@ low-stakes variable reward for keeping a streak. Habit loop, not a casino.
     currency, this stays clear of App Store 3.1.1 / Play's paid random-item
     odds rules and the loot-box legislation surface. **Keep it that way** — the
     moment a crate is purchasable this becomes a compliance project.
-  - Contents: rarity palettes (reusing the existing palette-store inventory),
-    contact-card frames, streak badges, alternate app icons.
+  - Contents: draws from the **Phase 10 cosmetics catalog** (rarity palettes,
+    contact borders, backgrounds, app color schemes) plus crate-only items —
+    streak badges and alternate app icons.
   - **Odds are published in-app**, visible *before* opening — the honest
     version of the mechanic, and what the store guidelines want anyway.
   - Pity counter guarantees an unowned item every N crates; once everything
-    is owned, crates convert to palette-store credit.
+    is owned, crates convert to cosmetics-store credit.
   - ⚠️ **Decide before wiring:** keep the earned pool *disjoint* from the paid
-    IAP palette pool, or people who paid for a palette will watch it drop free
+    pool (Phase 10), or people who paid for a cosmetic will watch it drop free
     and ask for refunds.
   - Draw is a deterministic pure function seeded by crate id — testable, and
     it can't be re-rolled by force-quitting the app mid-animation.
 - [ ] **9.5 Ship gate** — `npm run typecheck && npm run check:imports &&
       npm test` green; every zero-knowledge claim in the leaderboard opt-in
       copy re-read against what 9.3 actually uploads.
+
+### Phase 10 — Cosmetics store: borders, backgrounds & app color schemes
+
+**Goal:** grow the one-off cosmetic purchase from "rarity palettes only" into a
+four-category store — **palettes** (already shipped), **contact borders**,
+**backgrounds**, and whole-app **color schemes** (including a 16-bit console
+throwback). Same non-consumable $1.99 model as palettes, same honest
+free-in-beta stub until real StoreKit billing exists.
+
+> **Gate first, catalog second.** `FEATURE_PALETTE_STORE` →
+> `PALETTE_STORE_ENABLED` already forces prices off in `production` builds,
+> because Guideline 3.1.1 forbids showing a price you cannot charge (`eas.json`
+> sets it off for `production`, on for `testflight`). Rename it
+> `FEATURE_COSMETICS_STORE` and make **every** new category obey it — otherwise
+> the first build containing borders ships a storefront Apple rejects.
+
+- [ ] **10.1 Generalize the store from palettes to cosmetics**
+  - `src/features/contacts/palettes.ts` + `paletteStore.ts` become
+    `src/features/cosmetics/`, with one shape for every item:
+    `Cosmetic { id, kind, name, description, premium, price?, animated? }`,
+    `kind: 'palette' | 'border' | 'background' | 'scheme'`.
+  - `purchasePalette(id)` → `purchaseCosmetic(id)`. The StoreKit seam and the
+    free-in-beta honesty copy move across unchanged — this phase adds items to
+    sell, it does **not** make charging work.
+  - `AppSettings`: `paletteId` + `unlockedPalettes[]` become
+    `equipped: Record<CosmeticKind, string>` + `unlocked: string[]` with
+    namespaced ids (`palette:neon`, `border:gilded`, `scheme:16bit`).
+  - ⚠️ **Ship the settings migration in the same commit.** Testers already own
+    palettes through the free-in-beta unlock; a rename that silently drops
+    `unlockedPalettes` confiscates what they unlocked. Map old keys to
+    `palette:<id>` and keep reading the old shape for one release.
+- [ ] **10.2 Contact borders** — a frame around the avatar / contact card
+  - Borders are **shapes and materials, not hues**: double-line, notched,
+    beveled metal, engraved, animated shimmer. Each takes its color from the
+    contact's *current tier color*, so a border can never fight the rarity read
+    the entire app is built on. A cosmetic that obscures the grade is a
+    downgrade however good it looks. (A border may opt into a fixed hue only if
+    it also keeps a tier-colored element.)
+  - One new `ContactFrame` component wrapping `Avatar`, so the list rows,
+    contact detail, and the Me card all pick it up from a single place.
+  - **App-wide first:** the equipped border applies to every contact.
+  - *Per-contact* borders (mark your VIPs) are a **separate, more expensive
+    step**: a `Contact.borderId?` field touches the SQLite schema, the sync
+    oplog, **and** the CSV schema — a new column in both import and export,
+    which is a file-format change for anyone holding an existing export. Decide
+    that one on its own; don't let it ride along with 10.2.
+- [ ] **10.3 Backgrounds** — behind the contact list and detail screens
+  - Every background declares the text roles that sit on it (`onBackground`,
+    `onBackgroundMuted`) rather than assuming the active theme's. The failure
+    mode here is a pretty background that renders the muted caption unreadable.
+  - Catalog test (pure, vitest): every background × text pair meets **WCAG AA
+    4.5:1**. Cheap to write, and it converts "does this look OK?" into a build
+    failure.
+  - Keep them quiet — flat washes, soft gradients, low-contrast patterns. These
+    sit under a dense alphabetized list, not a hero screen. No photos.
+- [ ] **10.4 App color schemes** — reskin the whole app, not just the badges
+  - The codebase is already shaped for this: `src/theme/colors.ts` states that
+    components reference roles (`colors.text`, `colors.surface`) and never raw
+    palette values, so a scheme is just another `ThemeColors` pair.
+  - `ColorScheme { id, name, premium, price?, light: ThemeColors, dark: ThemeColors }`.
+    Today's `lightColors`/`darkColors` become the `classic` scheme;
+    `ThemeProvider` resolves `scheme[mode]` instead of the two module
+    constants. Nothing downstream changes.
+  - Every scheme must define **both** modes. Legend has a light/dark toggle; a
+    scheme that only defines one is a broken toggle, not a cheaper scheme.
+  - **`scheme:16bit` — the retro console throwback (the one asked for).**
+    Grey-lavender chassis, deep purple accents, CRT-tinted darks:
+
+    | Role | Light | Dark |
+    | --- | --- | --- |
+    | `background` | `#D9D6E2` | `#151020` |
+    | `surface` | `#EDEBF3` | `#221B31` |
+    | `surfaceAlt` | `#C9C5D6` | `#2E2542` |
+    | `border` | `#B0AAC2` | `#3B3153` |
+    | `text` | `#2A2440` | `#EBE7F7` |
+    | `textMuted` | `#6B6383` | `#9C93B8` |
+    | `primary` | `#5A4FCF` | `#8E7DFF` |
+
+    Pair it with a matching **`palette:16bit`** for the rarity tiers — the
+    console's four face-button colors map onto them almost exactly:
+    common `#9C93B8`, uncommon `#4CAF6E` (green), rare `#4A7ED8` (blue),
+    epic `#5A4FCF` (purple), legendary `#F2C14E` (yellow), with red `#E04B4B`
+    held back as the destructive-action accent.
+  - ⚠️ **Do not ship it named "Super Nintendo", "SNES", or "Super Famicom".**
+    Those are Nintendo trademarks, and this is a *paid* cosmetic — precisely
+    the case where a trademark claim has teeth and where the store review can
+    pull the product. "16-Bit" (or "Cartridge" / "Super Console") buys the same
+    recognition with none of the exposure. The colors themselves aren't
+    protectable; the name is.
+- [ ] **10.5 Store UI** — `app/(app)/settings/cosmetics.tsx` replaces the
+      single Rarity Colors screen: four sections on one screen, over a live
+      preview of a sample contact row so palette + border + background + scheme
+      are judged *together* rather than one at a time. Owned items equip
+      instantly; locked items show a price only when the store flag is on, and
+      "Coming soon" otherwise — the existing Rarity Colors behavior, kept.
+- [ ] **10.6 App Store Connect products** — every cosmetic is its own
+      non-consumable SKU, created by hand; four categories makes that list grow
+      fast. Consider a single **Cosmetics bundle** non-consumable that grants
+      everything for less than the sum, so the store isn't twenty rows of
+      $1.99. Blocked on the same StoreKit work as the palette IAP above; this
+      phase does not unblock charging.
+- [ ] **10.7 Ship gate** — `npm run typecheck && npm run check:imports &&
+      npm test` green; contrast test passes for every background × scheme pair;
+      entitlement migration verified by loading a pre-migration settings blob.
 
 ### Backlog (post-MVP ideas, not scheduled)
 

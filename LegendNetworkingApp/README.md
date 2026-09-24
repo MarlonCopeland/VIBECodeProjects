@@ -36,7 +36,9 @@ all come from it — see its README/ARCHITECTURE for template internals).
 
 ## Quick start
 
-> **Node 18–20 only** (`nvm use`) — Node 22+ breaks Expo SDK 52's config loader.
+> **Node 22+ only** (`nvm use`) — Expo SDK 54. Node 20 installs and typechecks
+> fine but silently skips the SQLite tests (`node:sqlite` doesn't exist before
+> 22), so the suite looks green while a whole file never ran.
 
 ```bash
 nvm use
@@ -54,8 +56,11 @@ password: Password1
 ```
 
 For a real backend, set `APP_BACKEND=supabase` + `SUPABASE_URL` /
-`SUPABASE_ANON_KEY` and apply `supabase/migrations/0001_init.sql` and
-`0002_contacts.sql` — see [`supabase/README.md`](./supabase/README.md).
+`SUPABASE_ANON_KEY` and apply every file in `supabase/migrations/` in order
+(`0001` … `0005`) — see [`supabase/README.md`](./supabase/README.md). Note that
+`0005` drops the plaintext contact tables: Supabase holds accounts, metrics and
+**ciphertext only**. The full stack and service list is in
+[`Documentation.md` §2](./Documentation.md#2-tech-stack--services).
 
 ## Project structure (Legend-specific)
 

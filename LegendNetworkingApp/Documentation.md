@@ -65,7 +65,53 @@ Route (app/*.tsx)  ->  Feature service/context (src/features/*)
 
 ---
 
-## 2. Running it
+## 2. Tech stack & services
+
+### Stack
+
+| Layer | What we use |
+| ----- | ----------- |
+| **Framework** | Expo **SDK 54**, React Native 0.81, React 19, **TypeScript 5.9** |
+| **Navigation** | **Expo Router 6** — file-based routes under `app/` |
+| **Runtime** | **Node >= 22** (`.nvmrc` = 22, enforced by `engine-strict` in `.npmrc`) |
+| **Auth** | Email/password + OAuth (Google/Apple, currently off in builds), SecureStore sessions. Email confirmation and password reset both take an emailed **8-digit code**, so they work when you sign up on one device and read mail on another |
+| **On-device DB** | **expo-sqlite** on device, `node:sqlite` in tests, behind one `SqlDriver` interface |
+| **Crypto** | **XChaCha20-Poly1305** (`@noble/ciphers`); vault key in **expo-secure-store** |
+| **Tests** | **Vitest** (`npm test`) |
+| **UI** | `react-native-svg` + `react-native-qrcode-svg` (vCard QR), Reanimated 4, `@expo/vector-icons` |
+| **Device access** | `expo-contacts`, `expo-location`, `expo-sms`, `expo-image-picker`, `expo-document-picker`, `expo-file-system`, `expo-clipboard`, `expo-sharing` |
+
+### Services
+
+| Service | Used for | Notes |
+| ------- | -------- | ----- |
+| **Supabase** (`krxszvviuqlzxxcvhyss`, ca-central-1, Postgres 17) | Auth, accounts, metrics, sync relay | Free-tier project; see the boundary below |
+| **Resend** (`smtp.resend.com:465`) | Transactional email | Custom SMTP on the Supabase project, sending as `Legend Networking <team@unjaded.net>` |
+| **EAS Build / Submit** | iOS + Android builds, TestFlight & Play uploads | `appVersionSource: remote`, `autoIncrement` on `production` |
+| **Expo Push** | Notifications | Tokens in `push_tokens` |
+| **Stripe** | Payments | Wired behind a pluggable provider, `FEATURE_PAYMENTS=false` — not live |
+
+### What Supabase is and isn't allowed to hold
+
+The hard architectural rule (see [`SYNC_DESIGN.md`](./SYNC_DESIGN.md) and
+`supabase/migrations/0005_zero_knowledge.sql`): **the operator cannot read your
+contacts.** The on-device SQLite vault is the only plaintext home for the
+contact graph. Postgres keeps exactly three jobs:
+
+| Table | Job |
+| ----- | --- |
+| `profiles`, `push_tokens` | Accounts |
+| `usage_events` | Signup date, last login, app-open/usage metrics |
+| `subscriptions` | Sync entitlements (the paid upgrade) |
+| `sync_changes` | Oplog relay — **ciphertext only** |
+
+Storage buckets: **`avatars`** (public) and **`vaults`** (private, 256 MB/object)
+— the latter holds encrypted vault snapshots, opaque to the server.
+
+The plaintext `contacts` / `interactions` / `circles` mirror tables that shipped
+in `0002` were **dropped** in `0005`. Don't reintroduce them.
+
+## 3. Running it
 
 **Toolchain:** Expo **SDK 54** · React Native 0.81 · React 19 · Node
 **≥ 20.19.4** (`.nvmrc` = 20). Unit tests for the SQLite layer additionally
@@ -90,7 +136,7 @@ device via Expo Go (or build the planned wa-sqlite/Electron drivers first).
 
 ---
 
-## 3. Dev-workflow gotchas (learned the hard way)
+## 4. Dev-workflow gotchas (learned the hard way)
 
 - **Never `npm install` while Metro is running.** npm prunes/reshuffles
   `node_modules`; Metro's file watcher crashes when watched directories vanish
@@ -109,7 +155,7 @@ device via Expo Go (or build the planned wa-sqlite/Electron drivers first).
 
 ---
 
-## 4. SDK 52 → 54 upgrade notes (2026-07)
+## 5. SDK 52 → 54 upgrade notes (2026-07)
 
 The upgrade path that worked: `npx expo install expo@^54.0.0` → fix
 `package.json` constraints → **delete `node_modules` + lockfile, clean
@@ -129,7 +175,7 @@ Breaking changes that actually bit:
 
 ---
 
-## 5. Building & TestFlight
+## 6. Building & TestFlight
 
 `eas.json` profiles:
 
@@ -172,10 +218,10 @@ the five rarity colors on Legend navy.
 
 ---
 
-## 6. First-boot post-mortem (SDK 52 era — lessons still apply)
+## 7. First-boot post-mortem (SDK 52 era — lessons still apply)
 
 > Historical: written when the fork first booted on SDK 52. Version specifics
-> are superseded by §4, but every root cause below is still how the Expo
+> are superseded by §5, but every root cause below is still how the Expo
 > ecosystem behaves — worth reading before debugging any "won't boot."
 
 The app was type-correct from the start, but would not boot until several
