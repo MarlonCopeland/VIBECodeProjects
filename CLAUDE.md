@@ -45,10 +45,10 @@ the git archive, not the working tree).
 The Anthropic `frontend-design` skill is vendored at
 `.claude/skills/frontend-design/` (upstream: `anthropics/skills`, Apache-2.0).
 Use it for any new screen, redesign, or visual polish in **UnjadedDigital**,
-**VendorFinder**, **LegendNetworkingApp**, and **BraMan**
-(`NAACP_BranchManagement/` — `web/` and `mobile/`).
+**VendorFinder**, and **LegendNetworkingApp**. (BraMan lives in its own repo,
+`C:\repo\BraMan`, with its own copy of the skill.)
 
-These are mostly Expo / React Native apps, so translate the skill's web
+These are Expo / React Native apps, so translate the skill's web
 guidance: CSS tokens → a theme object / `StyleSheet`, Google Fonts →
 `expo-font`, hover states → press feedback, and respect each app's existing
 theme files rather than inventing a parallel palette. Legend's cosmetics store
