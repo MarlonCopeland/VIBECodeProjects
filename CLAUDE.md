@@ -47,6 +47,9 @@ The Anthropic `frontend-design` skill is vendored at
 Use it for any new screen, redesign, or visual polish in **UnjadedDigital**,
 **VendorFinder**, and **LegendNetworkingApp**. (BraMan lives in its own repo,
 `C:\repo\BraMan`, with its own copy of the skill.)
+VendorFinder and LegendNetworkingApp also carry their own copy plus an
+app-level `CLAUDE.md` with app-specific design notes, so the skill loads
+when a session is opened directly in either app folder.
 
 These are Expo / React Native apps, so translate the skill's web
 guidance: CSS tokens → a theme object / `StyleSheet`, Google Fonts →
