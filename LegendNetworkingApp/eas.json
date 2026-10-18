@@ -12,6 +12,21 @@
       },
       "env": {
         "APP_VERSION": "0.2.0",
+        "APP_BACKEND": "supabase",
+        "SUPABASE_URL": "https://krxszvviuqlzxxcvhyss.supabase.co",
+        "SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtyeHN6dnZpdXFsenh4Y3ZoeXNzIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3OTI1MTEsImV4cCI6MjEwMTM2ODUxMX0.FmqEiEN298JZpIdero8vlZrEZ2sQj_zrGlR5ABEYLls",
+        "AUTH_GOOGLE_ENABLED": "false",
+        "AUTH_APPLE_ENABLED": "false"
+      }
+    },
+    "development-local": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "APP_VERSION": "0.2.0",
         "APP_BACKEND": "local",
         "AUTH_GOOGLE_ENABLED": "false",
         "AUTH_APPLE_ENABLED": "false"

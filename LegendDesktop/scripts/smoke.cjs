@@ -1,4 +1,6 @@
 // scripts/smoke.cjs — end-to-end smoke test of the BUILT app (`npm run smoke`).
+// Troubleshooting harness: it runs on the LOCAL demo backend (built with
+// `build.mjs --local`) so it needs no network or Supabase test account.
 // Boots dist-electron/main.cjs against a throwaway profile, seeds a demo
 // network straight into the SQLite vault through the same IPC bridge the app
 // uses, signs in through the real login form (local backend demo account),

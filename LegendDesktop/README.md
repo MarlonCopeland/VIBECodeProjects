@@ -56,15 +56,29 @@ Node 22+ (`.nvmrc`). From this folder:
 npm install
 npm run dev        # Vite HMR + Electron; editing electron/*.ts restarts it
 npm run typecheck && npm test
-npm run smoke      # build, then drive the real app: seed a demo network,
+npm run smoke      # troubleshooting: local-backend build, seed a demo network,
                    # sign in, screenshot contacts + 3D map (no console errors)
 npm run dist       # package installers into release/
+npm run publish:release   # upload release/ installers so Full Suite links serve them
 ```
 
 Config comes from the phone app's `.env` (`../LegendNetworkingApp/.env`), so
 both clients use the same backend; an optional `LegendDesktop/.env` overrides
-it. With `APP_BACKEND=local`, sign in with `demo@unjadeddigital.com` /
-`Password1`. The vault lives in Electron's userData folder (`legend.db`).
+it. **Test with Supabase accounts** — `npm run seed:test-users` in
+`../LegendNetworkingApp` creates them (see its `TESTING.md`); use the
+`legend-suite` account, because the desktop app only opens for accounts that
+own Legend Full Suite (`src/app/SuiteGate.tsx`). The local demo backend
+(`APP_BACKEND=local`, `demo@unjadeddigital.com` / `Password1`, no gate) is for
+troubleshooting only. The vault lives in Electron's userData folder
+(`legend.db`).
+
+## How people get it
+
+Legend Desktop is sold as **Legend Full Suite**, a one-time App Store /
+Google Play purchase in the phone app. After the purchase is verified, the
+download links (Windows, macOS, Linux) are emailed to the account's address,
+and the desktop app unlocks for that account. The full flow and the one-time
+store/email setup are in `../LegendNetworkingApp/supabase/functions/README.md`.
 
 If the app opens as a bare Node process with no window, your shell has
 `ELECTRON_RUN_AS_NODE` set (VS Code / Claude terminals do) — `npm run dev`

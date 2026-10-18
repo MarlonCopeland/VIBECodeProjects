@@ -22,6 +22,8 @@ interface RawExtra {
   stripePublishableKey?: string;
   stripePriceTier1?: string;
   stripePriceTier2?: string;
+  fullSuiteProductIdIos?: string;
+  fullSuiteProductIdAndroid?: string;
   features?: Partial<Record<string, boolean>>;
 }
 
@@ -65,6 +67,12 @@ export const STRIPE_PUBLISHABLE_KEY = extra.stripePublishableKey ?? '';
 export const STRIPE_PRICE_IDS = {
   tier1: extra.stripePriceTier1 ?? '',
   tier2: extra.stripePriceTier2 ?? '',
+} as const;
+
+/** Store product ids for the one-time Legend Full Suite purchase. */
+export const FULL_SUITE_PRODUCT_IDS = {
+  ios: extra.fullSuiteProductIdIos ?? 'com.unjadeddigital.legend.fullsuite',
+  android: extra.fullSuiteProductIdAndroid ?? 'full_suite',
 } as const;
 
 /** True only when the real backend is selected AND keys are present. */

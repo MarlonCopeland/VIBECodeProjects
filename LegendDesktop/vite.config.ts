@@ -84,6 +84,8 @@ export default defineConfig(({ mode }) => {
       circles: flag(env.FEATURE_CIRCLES, true),
       outreach: flag(env.FEATURE_OUTREACH, true),
       sync: flag(env.FEATURE_SYNC, true),
+      // Desktop sign-in requires owning Legend Full Suite (src/app/SuiteGate.tsx).
+      fullSuite: flag(env.FEATURE_FULL_SUITE, true),
     },
   };
 

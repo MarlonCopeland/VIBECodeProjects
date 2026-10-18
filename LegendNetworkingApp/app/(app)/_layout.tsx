@@ -47,6 +47,7 @@ export default function AppLayout() {
       <Stack.Screen name="outreach/calls" options={{ title: 'Call List' }} />
       <Stack.Screen name="profile/edit" options={{ title: 'Edit Profile', presentation: 'modal' }} />
       <Stack.Screen name="subscription" options={{ title: 'Subscription' }} />
+      <Stack.Screen name="full-suite" options={{ title: 'Legend Full Suite' }} />
       <Stack.Screen name="tutorial" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
     </Stack>
   );

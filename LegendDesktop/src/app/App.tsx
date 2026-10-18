@@ -15,6 +15,7 @@ import { SyncProvider, useSync } from '@legend/features/sync/SyncProvider';
 import { isFeatureEnabled } from '@legend/config/features';
 import { countKnowsSuggestions } from '@legend/features/contacts/knows';
 import { DesktopThemeProvider } from './theme';
+import { SuiteGate } from './SuiteGate';
 import { RouterProvider, matchPath, useRouter } from './router';
 import { APP_ROUTES, AUTH_ROUTES, type RouteDef } from './routes';
 
@@ -60,7 +61,11 @@ function Gate() {
     );
   }
   if (status !== 'authenticated') return <Loading />;
-  return <Shell />;
+  return (
+    <SuiteGate>
+      <Shell />
+    </SuiteGate>
+  );
 }
 
 function SyncIndicator() {
