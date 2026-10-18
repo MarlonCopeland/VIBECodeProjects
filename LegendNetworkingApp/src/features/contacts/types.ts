@@ -122,3 +122,39 @@ export interface CircleInput {
 }
 
 export type CirclePatch = Partial<CircleInput>;
+
+/**
+ * A snapshot of who an endpoint of a Knows Connection WAS when it was last
+ * linked: display name + normalized phone digits. The contact id is the
+ * strong link; this fingerprint is the loose fallback that lets a link
+ * survive the contact being deleted and re-imported under a new id.
+ */
+export interface KnowsFingerprint {
+  name: string;
+  /** Digits only, last 10 (national number) — see knows.ts normalizePhone. */
+  phones: string[];
+}
+
+/**
+ * "These two people know each other." Added from one contact's Knows list,
+ * but the relationship is mutual: it appears on both contacts. Stored once
+ * per pair. Contact deletion deliberately does NOT remove the link — the
+ * dangling endpoint keeps its fingerprint so a re-imported copy of that
+ * person can be suggested as the match (see knows.ts resolveKnows).
+ */
+export interface KnowsConnection {
+  id: string;
+  ownerId: string;
+  /** The contact the link was added from. */
+  contactId: string;
+  contact: KnowsFingerprint;
+  /** The contact added to the list. */
+  knownContactId: string;
+  known: KnowsFingerprint;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Which endpoint of a KnowsConnection. */
+export type KnowsSide = 'contact' | 'known';

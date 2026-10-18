@@ -12,6 +12,8 @@ import type {
   ContactPatch,
   Interaction,
   InteractionInput,
+  KnowsConnection,
+  KnowsSide,
 } from '../features/contacts/types';
 
 export type {
@@ -23,6 +25,8 @@ export type {
   ContactPatch,
   Interaction,
   InteractionInput,
+  KnowsConnection,
+  KnowsSide,
 } from '../features/contacts/types';
 
 export type UserRole = 'admin' | 'user';
@@ -143,6 +147,18 @@ export interface ContactsApi {
   createCircle(ownerId: string, input: CircleInput): Promise<Circle>;
   updateCircle(ownerId: string, id: string, patch: CirclePatch): Promise<Circle>;
   deleteCircle(ownerId: string, id: string): Promise<void>;
+
+  /**
+   * Knows Connections. Deleting a contact deliberately leaves its links in
+   * place (dangling) so a re-imported copy can be re-matched by fingerprint;
+   * listKnows returns those too — resolution happens in knows.ts.
+   */
+  listKnows(ownerId: string): Promise<KnowsConnection[]>;
+  /** Link two contacts. Returns the existing link if they're already linked. */
+  addKnows(ownerId: string, contactId: string, knownContactId: string, note?: string): Promise<KnowsConnection>;
+  /** Re-point one endpoint (accepting a loose suggestion) and refresh its fingerprint. */
+  relinkKnows(ownerId: string, id: string, side: KnowsSide, newContactId: string): Promise<KnowsConnection>;
+  removeKnows(ownerId: string, id: string): Promise<void>;
 }
 
 export interface Backend {

@@ -22,8 +22,11 @@ import type {
   ContactInput,
   ContactPatch,
   Interaction,
+  KnowsConnection,
+  KnowsSide,
   Premise,
 } from '../../../features/contacts/types';
+import { fingerprintOf } from '../../../features/contacts/knows';
 import { migrate } from './schema';
 import type { Clock, IdGenerator, SqlDriver } from './types';
 
@@ -71,6 +74,33 @@ interface CircleRow {
   updated_at: string;
 }
 interface LinkRow { circle_id: string; contact_id: string }
+interface KnowsRow {
+  id: string;
+  owner_id: string;
+  contact_id: string;
+  contact_name: string;
+  contact_phones: string;
+  known_contact_id: string;
+  known_name: string;
+  known_phones: string;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+function toKnows(r: KnowsRow): KnowsConnection {
+  return {
+    id: r.id,
+    ownerId: r.owner_id,
+    contactId: r.contact_id,
+    contact: { name: r.contact_name, phones: JSON.parse(r.contact_phones) as string[] },
+    knownContactId: r.known_contact_id,
+    known: { name: r.known_name, phones: JSON.parse(r.known_phones) as string[] },
+    note: r.note ?? undefined,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
 
 function inClause(n: number): string {
   return `(${Array(n).fill('?').join(',')})`;
@@ -299,6 +329,35 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     }
   }
 
+  async function liveContact(d: SqlDriver, ownerId: string, id: string): Promise<Contact> {
+    const rows = await d.getAllAsync<ContactRow>(
+      `SELECT * FROM contacts WHERE id = ? AND owner_id = ? AND deleted_at IS NULL`,
+      [id, ownerId],
+    );
+    if (rows.length === 0) throw new Error('Contact not found');
+    return (await assembleContacts(rows))[0]!;
+  }
+
+  /**
+   * Keep the loose-match fingerprint current while a contact is alive, so if
+   * it's later lost and re-imported the suggestion matches who they were
+   * most recently, not who they were when first linked.
+   */
+  async function refreshKnowsFingerprints(d: SqlDriver, contact: Contact, hlc: string): Promise<void> {
+    const fp = fingerprintOf(contact);
+    const phones = JSON.stringify(fp.phones);
+    await d.runAsync(
+      `UPDATE contact_knows SET contact_name = ?, contact_phones = ?, updated_at = ?
+       WHERE contact_id = ? AND owner_id = ? AND deleted_at IS NULL`,
+      [fp.name, phones, hlc, contact.id, contact.ownerId],
+    );
+    await d.runAsync(
+      `UPDATE contact_knows SET known_name = ?, known_phones = ?, updated_at = ?
+       WHERE known_contact_id = ? AND owner_id = ? AND deleted_at IS NULL`,
+      [fp.name, phones, hlc, contact.id, contact.ownerId],
+    );
+  }
+
   const api: ContactsApi = {
     async listContacts(ownerId) {
       const d = await db();
@@ -406,7 +465,14 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       }
 
       const rows = await d.getAllAsync<ContactRow>(`SELECT * FROM contacts WHERE id = ?`, [id]);
-      return (await assembleContacts(rows))[0]!;
+      const updated = (await assembleContacts(rows))[0]!;
+      const identityChanged =
+        patch.firstName !== undefined ||
+        patch.lastName !== undefined ||
+        patch.nickname !== undefined ||
+        patch.phones !== undefined;
+      if (identityChanged) await refreshKnowsFingerprints(d, updated, hlc);
+      return updated;
     },
 
     async deleteContact(ownerId, id) {
@@ -434,6 +500,9 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
         `UPDATE circle_excludes SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
         [hlc, hlc, id],
       );
+      // contact_knows rows are intentionally NOT tombstoned: the dangling
+      // endpoint keeps its fingerprint so a re-imported copy of this person
+      // can be suggested as the match (see knows.ts).
     },
 
     async listInteractions(ownerId) {
@@ -568,6 +637,91 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       await d.runAsync(
         `UPDATE circle_excludes SET deleted_at = ?, updated_at = ? WHERE circle_id = ? AND deleted_at IS NULL`,
         [hlc, hlc, id],
+      );
+    },
+
+    async listKnows(ownerId) {
+      const d = await db();
+      const rows = await d.getAllAsync<KnowsRow>(
+        `SELECT * FROM contact_knows WHERE owner_id = ? AND deleted_at IS NULL`,
+        [ownerId],
+      );
+      return rows.map(toKnows);
+    },
+
+    async addKnows(ownerId, contactId, knownContactId, note) {
+      if (contactId === knownContactId) throw new Error('A contact can’t know themselves.');
+      const d = await db();
+      const existing = await d.getFirstAsync<KnowsRow>(
+        `SELECT * FROM contact_knows WHERE owner_id = ? AND deleted_at IS NULL AND
+          ((contact_id = ? AND known_contact_id = ?) OR (contact_id = ? AND known_contact_id = ?))`,
+        [ownerId, contactId, knownContactId, knownContactId, contactId],
+      );
+      if (existing) return toKnows(existing);
+
+      const [a, b] = await Promise.all([
+        liveContact(d, ownerId, contactId),
+        liveContact(d, ownerId, knownContactId),
+      ]);
+      const fa = fingerprintOf(a);
+      const fb = fingerprintOf(b);
+      const id = deps.genId();
+      const hlc = await deps.nextHlc();
+      await d.runAsync(
+        `INSERT INTO contact_knows (id, owner_id, contact_id, contact_name, contact_phones, known_contact_id,
+          known_name, known_phones, note, created_at, updated_at, deleted_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+        [
+          id,
+          ownerId,
+          contactId,
+          fa.name,
+          JSON.stringify(fa.phones),
+          knownContactId,
+          fb.name,
+          JSON.stringify(fb.phones),
+          note?.trim() || null,
+          hlc,
+          hlc,
+        ],
+      );
+      const row = await d.getFirstAsync<KnowsRow>(`SELECT * FROM contact_knows WHERE id = ?`, [id]);
+      return toKnows(row!);
+    },
+
+    async relinkKnows(ownerId, id, side: KnowsSide, newContactId) {
+      const d = await db();
+      const row = await d.getFirstAsync<KnowsRow>(
+        `SELECT * FROM contact_knows WHERE id = ? AND owner_id = ? AND deleted_at IS NULL`,
+        [id, ownerId],
+      );
+      if (!row) throw new Error('Connection not found');
+      const otherId = side === 'contact' ? row.known_contact_id : row.contact_id;
+      if (otherId === newContactId) throw new Error('A contact can’t know themselves.');
+      const target = await liveContact(d, ownerId, newContactId);
+      const fp = fingerprintOf(target);
+      const hlc = await deps.nextHlc();
+      const cols =
+        side === 'contact'
+          ? 'contact_id = ?, contact_name = ?, contact_phones = ?'
+          : 'known_contact_id = ?, known_name = ?, known_phones = ?';
+      await d.runAsync(`UPDATE contact_knows SET ${cols}, updated_at = ? WHERE id = ?`, [
+        newContactId,
+        fp.name,
+        JSON.stringify(fp.phones),
+        hlc,
+        id,
+      ]);
+      const updated = await d.getFirstAsync<KnowsRow>(`SELECT * FROM contact_knows WHERE id = ?`, [id]);
+      return toKnows(updated!);
+    },
+
+    async removeKnows(ownerId, id) {
+      const d = await db();
+      const hlc = await deps.nextHlc();
+      await d.runAsync(
+        `UPDATE contact_knows SET deleted_at = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND deleted_at IS NULL`,
+        [hlc, hlc, id, ownerId],
       );
     },
   };

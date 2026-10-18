@@ -7,7 +7,7 @@
 // snapshot whose updated_at is newer than the last push cursor, and applying
 // a remote change is an upsert guarded by HLC comparison (row-level
 // last-write-wins; child tables are normalized, so per-item merge falls out
-// for phones/emails/premises/pins/excludes). Serialized HLCs are zero-padded
+// for phones/emails/premises/pins/excludes/knows). Serialized HLCs are zero-padded
 // specifically so plain string comparison orders them correctly — in SQL and
 // in JS alike.
 
@@ -41,6 +41,13 @@ export const SYNC_TABLES: TableSpec[] = [
   },
   { name: 'circle_pins', columns: ['id', 'circle_id', 'contact_id', 'updated_at', 'deleted_at'] },
   { name: 'circle_excludes', columns: ['id', 'circle_id', 'contact_id', 'updated_at', 'deleted_at'] },
+  {
+    name: 'contact_knows',
+    columns: [
+      'id', 'owner_id', 'contact_id', 'contact_name', 'contact_phones', 'known_contact_id',
+      'known_name', 'known_phones', 'note', 'created_at', 'updated_at', 'deleted_at',
+    ],
+  },
 ];
 
 /** One changed row, as shipped inside the encrypted payload. */

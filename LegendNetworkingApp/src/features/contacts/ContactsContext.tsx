@@ -18,6 +18,7 @@ import { useAppSettings } from '../settings/AppSettingsContext';
 import { notifySyncWrite } from '../sync/syncScheduler';
 import { computeGrade, type Grade } from './grading';
 import { dedupeAgainst } from './importExport';
+import { knowsForContact, resolveKnows, type ContactKnows, type ResolvedKnows } from './knows';
 import type {
   Circle,
   CircleInput,
@@ -27,6 +28,8 @@ import type {
   ContactPatch,
   Interaction,
   InteractionInput,
+  KnowsConnection,
+  KnowsSide,
 } from './types';
 
 export interface GradedContact {
@@ -44,6 +47,12 @@ interface ContactsContextValue {
   contacts: Contact[];
   interactions: Interaction[];
   circles: Circle[];
+  /** Raw Knows Connections, including ones with a dangling endpoint. */
+  knows: KnowsConnection[];
+  /** Every link with its endpoints resolved (strong id, or loose candidates). */
+  resolvedKnows: ResolvedKnows[];
+  /** The Knows list for one contact: linked, suggested, lost. */
+  knowsFor(contactId: string): ContactKnows;
   /** Contacts joined with their computed grade, unsorted. */
   graded: GradedContact[];
   gradeFor(contactId: string): Grade;
@@ -62,6 +71,11 @@ interface ContactsContextValue {
   createCircle(input: CircleInput): Promise<Circle>;
   updateCircle(id: string, patch: CirclePatch): Promise<Circle>;
   deleteCircle(id: string): Promise<void>;
+
+  addKnows(contactId: string, knownContactId: string, note?: string): Promise<KnowsConnection>;
+  /** Accept a loose suggestion: re-point `side` of the link to `contactId`. */
+  relinkKnows(linkId: string, side: KnowsSide, contactId: string): Promise<KnowsConnection>;
+  removeKnows(linkId: string): Promise<void>;
 }
 
 const ContactsContext = createContext<ContactsContextValue | null>(null);
@@ -77,25 +91,29 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [interactions, setInteractions] = useState<Interaction[]>([]);
   const [circles, setCircles] = useState<Circle[]>([]);
+  const [knows, setKnows] = useState<KnowsConnection[]>([]);
 
   const refresh = useCallback(async () => {
     if (!ownerId) {
       setContacts([]);
       setInteractions([]);
       setCircles([]);
+      setKnows([]);
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const [cs, is, cir] = await Promise.all([
+      const [cs, is, cir, kn] = await Promise.all([
         backend.contacts.listContacts(ownerId),
         backend.contacts.listInteractions(ownerId),
         backend.contacts.listCircles(ownerId),
+        backend.contacts.listKnows(ownerId),
       ]);
       setContacts(cs);
       setInteractions(is);
       setCircles(cir);
+      setKnows(kn);
     } finally {
       setLoading(false);
     }
@@ -132,6 +150,8 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
     [contacts, grades],
   );
 
+  const resolvedKnows = useMemo(() => resolveKnows(knows, contacts), [knows, contacts]);
+
   const requireOwner = useCallback((): string => {
     if (!ownerId) throw new Error('Not signed in');
     return ownerId;
@@ -143,6 +163,9 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
       contacts,
       interactions,
       circles,
+      knows,
+      resolvedKnows,
+      knowsFor: (contactId) => knowsForContact(contactId, resolvedKnows),
       graded,
       gradeFor: (contactId) =>
         grades.get(contactId) ?? computeGrade(EMPTY_GRADE_INTERACTIONS, Date.now(), gradingConfig),
@@ -204,12 +227,32 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         setCircles((prev) => prev.filter((c) => c.id !== id));
         notifySyncWrite();
       },
+
+      async addKnows(contactId, knownContactId, note) {
+        const row = await backend.contacts.addKnows(requireOwner(), contactId, knownContactId, note);
+        setKnows((prev) => (prev.some((k) => k.id === row.id) ? prev : [...prev, row]));
+        notifySyncWrite();
+        return row;
+      },
+      async relinkKnows(linkId, side, contactId) {
+        const row = await backend.contacts.relinkKnows(requireOwner(), linkId, side, contactId);
+        setKnows((prev) => prev.map((k) => (k.id === linkId ? row : k)));
+        notifySyncWrite();
+        return row;
+      },
+      async removeKnows(linkId) {
+        await backend.contacts.removeKnows(requireOwner(), linkId);
+        setKnows((prev) => prev.filter((k) => k.id !== linkId));
+        notifySyncWrite();
+      },
     }),
     [
       loading,
       contacts,
       interactions,
       circles,
+      knows,
+      resolvedKnows,
       graded,
       grades,
       interactionsByContact,

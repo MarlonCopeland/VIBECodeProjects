@@ -88,6 +88,25 @@ const STATEMENTS = [
     updated_at TEXT NOT NULL,
     deleted_at TEXT
   );`,
+  // Knows Connections: one row per linked pair. contact_id/known_contact_id
+  // are the strong links; the *_name/*_phones columns are the fingerprint
+  // that lets a link be re-matched after a contact is re-imported under a
+  // new id (src/features/contacts/knows.ts). owner_id is on the row itself
+  // because either endpoint may be a deleted contact.
+  `CREATE TABLE IF NOT EXISTS contact_knows (
+    id TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    contact_id TEXT NOT NULL,
+    contact_name TEXT NOT NULL DEFAULT '',
+    contact_phones TEXT NOT NULL DEFAULT '[]',
+    known_contact_id TEXT NOT NULL,
+    known_name TEXT NOT NULL DEFAULT '',
+    known_phones TEXT NOT NULL DEFAULT '[]',
+    note TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
+  );`,
   `CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -100,6 +119,7 @@ const STATEMENTS = [
   `CREATE INDEX IF NOT EXISTS idx_circles_owner ON circles(owner_id);`,
   `CREATE INDEX IF NOT EXISTS idx_pins_circle ON circle_pins(circle_id);`,
   `CREATE INDEX IF NOT EXISTS idx_excludes_circle ON circle_excludes(circle_id);`,
+  `CREATE INDEX IF NOT EXISTS idx_knows_owner ON contact_knows(owner_id);`,
 ];
 
 // Keyed by driver instance so multiple independent databases (e.g. one per
