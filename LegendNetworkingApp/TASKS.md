@@ -341,8 +341,9 @@ user can pin/exclude to override.
       interactions (and premise ids), then tombstones drop so sync sees it;
       `test/contactMerge.test.ts` (3 cases incl. real SQLite). UI: contact
       screen "Merge with…" (find the duplicate by name, confirm; this
-      contact is kept). Drop's circle pins are removed, not moved. Not yet
-      tried on a device.
+      contact is kept). Drop's circle pins/excludes move to keep per circle
+      (keep's own pin or exclude in a circle wins; if drop had both, the pin
+      wins). Not yet tried on a device.
 - [x] vCard (.vcf) import/export alongside CSV — 2026-11-01 (not yet tried on a device):
   - [x] Engine: `src/lib/vcard.ts` (unfold/fold at 75 octets, params,
         escapes, multi-card files) + `src/features/contacts/vcardMapping.ts`

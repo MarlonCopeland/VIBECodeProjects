@@ -524,8 +524,34 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
           it.id,
         ]);
       }
-      // 3. Tombstone drop and its children (its circle pins/excludes go too;
-      //    keep's own circle membership is unchanged).
+      // 3. Move drop's circle pins/excludes to keep, per circle. If keep
+      //    already has a pin OR an exclude in that circle, keep's wins and
+      //    drop's is left for the delete below. Otherwise drop's row is
+      //    repointed (same id, updated_at bumped so it syncs); should drop
+      //    somehow hold both in one circle, the pin wins.
+      const links = async (table: 'circle_pins' | 'circle_excludes', cid: string) =>
+        d.getAllAsync<{ id: string; circle_id: string }>(
+          `SELECT id, circle_id FROM ${table} WHERE contact_id = ? AND deleted_at IS NULL`,
+          [cid],
+        );
+      const [keepPins, keepExcl, dropPins, dropExcl] = await Promise.all([
+        links('circle_pins', keepId),
+        links('circle_excludes', keepId),
+        links('circle_pins', dropId),
+        links('circle_excludes', dropId),
+      ]);
+      const settled = new Set([...keepPins, ...keepExcl].map((l) => l.circle_id));
+      for (const [table, rowsOf] of [
+        ['circle_pins', dropPins],
+        ['circle_excludes', dropExcl],
+      ] as const) {
+        for (const l of rowsOf) {
+          if (settled.has(l.circle_id)) continue;
+          settled.add(l.circle_id);
+          await d.runAsync(`UPDATE ${table} SET contact_id = ?, updated_at = ? WHERE id = ?`, [keepId, hlc, l.id]);
+        }
+      }
+      // 4. Tombstone drop and its remaining children (anything not moved).
       await api.deleteContact(ownerId, dropId);
       const out = await d.getAllAsync<ContactRow>(`SELECT * FROM contacts WHERE id = ?`, [keepId]);
       return (await assembleContacts(out))[0]!;

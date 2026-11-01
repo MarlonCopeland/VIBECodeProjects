@@ -142,4 +142,39 @@ describe('sqliteContacts.mergeContacts', () => {
     expect(dropRow!.deleted_at).not.toBeNull();
     await expect(api.mergeContacts('o', keep.id, keep.id)).rejects.toThrow();
   });
+
+  it('moves drop’s circle pins/excludes to keep unless keep already has an entry there', async () => {
+    let n = 0;
+    const api = createSqliteContacts(createNodeSqlDriver(), {
+      async nextHlc() {
+        n += 1;
+        return serializeHlc(2_000_000 + n, 0, 'test');
+      },
+      genId: randomUUID,
+    });
+    const base = { avatarUrl: null, whereMet: null, favorite: false, source: 'manual' as const, phones: [], emails: [], premises: [] };
+    const keep = await api.createContact('o', { ...base, firstName: 'Keep', lastName: '' });
+    const drop = await api.createContact('o', { ...base, firstName: 'Drop', lastName: '' });
+    const q = { kinds: [], tags: [] };
+    // c1: only drop pinned -> keep pinned.
+    const c1 = await api.createCircle('o', { name: 'c1', query: q, pinnedContactIds: [drop.id] });
+    // c2: keep excluded, drop pinned -> keep's exclude wins, no pin.
+    const c2 = await api.createCircle('o', { name: 'c2', query: q, pinnedContactIds: [drop.id], excludedContactIds: [keep.id] });
+    // c3: only drop excluded -> keep excluded.
+    const c3 = await api.createCircle('o', { name: 'c3', query: q, excludedContactIds: [drop.id] });
+    // c4: keep pinned, drop excluded -> keep stays pinned only.
+    const c4 = await api.createCircle('o', { name: 'c4', query: q, pinnedContactIds: [keep.id], excludedContactIds: [drop.id] });
+
+    await api.mergeContacts('o', keep.id, drop.id);
+
+    const byName = new Map((await api.listCircles('o')).map((c) => [c.name, c]));
+    const view = (id: string) => {
+      const c = [...byName.values()].find((x) => x.id === id)!;
+      return { pins: c.pinnedContactIds, excl: c.excludedContactIds };
+    };
+    expect(view(c1.id)).toEqual({ pins: [keep.id], excl: [] });
+    expect(view(c2.id)).toEqual({ pins: [], excl: [keep.id] });
+    expect(view(c3.id)).toEqual({ pins: [], excl: [keep.id] });
+    expect(view(c4.id)).toEqual({ pins: [keep.id], excl: [] });
+  });
 });
