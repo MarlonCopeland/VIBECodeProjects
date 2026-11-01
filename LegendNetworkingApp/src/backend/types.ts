@@ -134,6 +134,10 @@ export interface ContactsApi {
   updateContact(ownerId: string, id: string, patch: ContactPatch): Promise<Contact>;
   /** Also removes the contact's interactions. */
   deleteContact(ownerId: string, id: string): Promise<void>;
+  /** Merge contact `dropId` into `keepId` (see contactMerge.ts): writes the
+   * merged fields onto keep, repoints drop's interactions to keep, then
+   * tombstones drop like deleteContact so sync sees it. Returns keep. */
+  mergeContacts(ownerId: string, keepId: string, dropId: string): Promise<Contact>;
 
   listInteractions(ownerId: string): Promise<Interaction[]>;
   logInteraction(ownerId: string, input: InteractionInput): Promise<Interaction>;

@@ -26,6 +26,7 @@ import type {
   Premise,
 } from '../../../features/contacts/types';
 import { migrate } from './schema';
+import { mergeContacts as mergeContactFields } from '../../../features/contacts/contactMerge';
 import type { Clock, IdGenerator, SqlDriver } from './types';
 
 export type SqliteContactsDeps = Clock & IdGenerator;
@@ -484,6 +485,50 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
         `UPDATE circle_excludes SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
         [hlc, hlc, id],
       );
+    },
+
+    async mergeContacts(ownerId, keepId, dropId) {
+      if (keepId === dropId) throw new Error('Cannot merge a contact with itself');
+      const d = await db();
+      const rows = await d.getAllAsync<ContactRow>(
+        `SELECT * FROM contacts WHERE id IN (?, ?) AND owner_id = ? AND deleted_at IS NULL`,
+        [keepId, dropId, ownerId],
+      );
+      const [keep, drop] = await Promise.all(
+        [keepId, dropId].map(async (cid) => {
+          const row = rows.find((r) => r.id === cid);
+          if (!row) throw new Error('Contact not found');
+          return (await assembleContacts([row]))[0]!;
+        }),
+      );
+      const { merged, createdAt, premiseIdMap } = mergeContactFields(keep!, drop!, deps.genId);
+
+      // 1. Merged fields onto keep (children merge by id; drop's copied
+      //    entries arrive id-less / with fresh ids, so no key collisions).
+      await api.updateContact(ownerId, keepId, merged);
+      const hlc = await deps.nextHlc();
+      await d.runAsync(`UPDATE contacts SET created_at = ?, updated_at = ? WHERE id = ?`, [createdAt, hlc, keepId]);
+      // 2. Repoint drop's live interactions BEFORE the delete below, which
+      //    would otherwise tombstone them. updated_at moves so the repoint
+      //    syncs; premise ids follow their premise onto keep.
+      const its = await d.getAllAsync<{ id: string; premise_id: string | null }>(
+        `SELECT id, premise_id FROM interactions WHERE contact_id = ? AND deleted_at IS NULL`,
+        [dropId],
+      );
+      for (const it of its) {
+        const premiseId = it.premise_id ? (premiseIdMap[it.premise_id] ?? null) : null;
+        await d.runAsync(`UPDATE interactions SET contact_id = ?, premise_id = ?, updated_at = ? WHERE id = ?`, [
+          keepId,
+          premiseId,
+          hlc,
+          it.id,
+        ]);
+      }
+      // 3. Tombstone drop and its children (its circle pins/excludes go too;
+      //    keep's own circle membership is unchanged).
+      await api.deleteContact(ownerId, dropId);
+      const out = await d.getAllAsync<ContactRow>(`SELECT * FROM contacts WHERE id = ?`, [keepId]);
+      return (await assembleContacts(out))[0]!;
     },
 
     async listInteractions(ownerId) {

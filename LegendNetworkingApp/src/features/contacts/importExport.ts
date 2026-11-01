@@ -130,14 +130,10 @@ export function csvToContacts(text: string): CsvImportResult {
 // Dedupe (device + CSV import share it)
 // ---------------------------------------------------------------------------
 
-export function normalizePhone(number: string): string {
-  const digits = number.replace(/\D/g, '');
-  return digits.length > 10 ? digits.slice(-10) : digits;
-}
-
-export function normalizeEmail(address: string): string {
-  return address.trim().toLowerCase();
-}
+// The normalisers live in ./contactMerge (pure) so merge and import dedupe
+// share one definition; re-exported here for existing callers.
+import { normalizeEmail, normalizePhone } from './contactMerge';
+export { normalizeEmail, normalizePhone };
 
 /**
  * Split candidates into new vs. already-present, matching on any shared
