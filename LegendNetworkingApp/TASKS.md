@@ -352,7 +352,13 @@ user can pin/exclude to override.
         banner, a file with no usable cards shows the failure screen.
         Entry points: Contacts + menu ("Import from vCard") and Settings →
         YOUR DATA. Known gap: 2.1 QUOTED-PRINTABLE values are not decoded.
-- [ ] Premise autocomplete from existing tags
+- [x] Premise autocomplete from existing tags — 2026-11-01:
+      `src/features/contacts/premiseSuggest.ts` (pure: distinct labels/tags
+      across the network, case-insensitive, prefix > substring, then use
+      count, then recency; tag field completes the token after the last
+      comma and skips tags already listed; `test/premiseSuggest.test.ts`,
+      7 cases). Contact edit form shows up to 4 label / 5 tag chips under
+      each premise field while typing. Not yet tried on a device.
 - [ ] Grade history sparkline on contact detail
 - [ ] Group visit logging ("I saw these 5 people at X event" → one action logs
       a `premise` interaction for all)

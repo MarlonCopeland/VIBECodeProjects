@@ -3,7 +3,7 @@
 // creates one. Includes editors for phones/emails, where-met, and premises
 // (kind + label + tags).
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -24,6 +24,12 @@ import {
   type PremiseKind,
 } from '../../../src/features/contacts/types';
 import { notify } from '../../../src/lib/notify';
+import {
+  applyTagSuggestion,
+  collectPremiseVocabulary,
+  suggestPremiseValues,
+  suggestTags,
+} from '../../../src/features/contacts/premiseSuggest';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 
 interface PremiseDraft {
@@ -37,10 +43,39 @@ export default function ContactEditScreen() {
   const { id, me } = useLocalSearchParams<{ id?: string; me?: string }>();
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
-  const { contactById, createContact, updateContact } = useContacts();
+  const { contacts, contactById, createContact, updateContact } = useContacts();
   const { setMeContactId } = useAppSettings();
 
   const existing = id ? contactById(id) : undefined;
+
+  // Labels/tags already used elsewhere in the network, for premise
+  // autocomplete (this contact's own saved values are left out).
+  const premiseVocab = useMemo(() => collectPremiseVocabulary(contacts, existing?.id), [contacts, existing?.id]);
+
+  /** Tappable suggestion chips under a premise field; renders nothing when
+   * there's nothing to suggest, so the form only grows while typing. */
+  const suggestionChips = (values: string[], onPick: (v: string) => void) =>
+    values.length === 0 ? null : (
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+        {values.map((v) => (
+          <Pressable
+            key={v}
+            accessibilityRole="button"
+            accessibilityLabel={`Use ${v}`}
+            onPress={() => onPick(v)}
+            style={{
+              borderRadius: radius.pill,
+              borderWidth: 1,
+              borderColor: colors.border,
+              paddingVertical: 3,
+              paddingHorizontal: spacing.sm,
+            }}
+          >
+            <Text variant="caption" tone="muted">{v}</Text>
+          </Pressable>
+        ))}
+      </View>
+    );
 
   const [firstName, setFirstName] = useState(existing?.firstName ?? '');
   const [lastName, setLastName] = useState(existing?.lastName ?? '');
@@ -305,12 +340,20 @@ export default function ContactEditScreen() {
               value={p.label}
               onChangeText={(v) => setPremises((prev) => prev.map((x, j) => (j === i ? { ...x, label: v } : x)))}
             />
+            {suggestionChips(suggestPremiseValues(premiseVocab.labels, p.label, { limit: 4 }), (v) =>
+              setPremises((prev) => prev.map((x) => (x.id === p.id ? { ...x, label: v } : x))),
+            )}
             <TextField
               placeholder="Tags, comma-separated — e.g. real-estate, investing"
               autoCapitalize="none"
               value={p.tagsText}
               onChangeText={(v) => setPremises((prev) => prev.map((x, j) => (j === i ? { ...x, tagsText: v } : x)))}
             />
+            {suggestionChips(suggestTags(premiseVocab, p.tagsText), (tag) =>
+              setPremises((prev) =>
+                prev.map((x) => (x.id === p.id ? { ...x, tagsText: applyTagSuggestion(x.tagsText, tag) } : x)),
+              ),
+            )}
             <Button
               title="Remove premise"
               variant="ghost"
