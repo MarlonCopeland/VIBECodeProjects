@@ -332,7 +332,17 @@ user can pin/exclude to override.
 ### Backlog (post-MVP ideas, not scheduled)
 
 - [ ] Reminders/recurring cadence per contact ("touch every 30 days")
-- [ ] Contact merge tool for import dupes
+- [x] Contact merge tool for import dupes — 2026-11-01: pure
+      `mergeContacts(keep, drop)` in `src/features/contacts/contactMerge.ts`
+      (phones/emails unioned with the import dedupe's normalisers, premises
+      by kind+label with tag union, keep's ids kept, blanks filled from drop,
+      notes concatenated, favorite either, earliest createdAt);
+      `sqliteContacts.mergeContacts` writes it onto keep, repoints drop's
+      interactions (and premise ids), then tombstones drop so sync sees it;
+      `test/contactMerge.test.ts` (3 cases incl. real SQLite). UI: contact
+      screen "Merge with…" (find the duplicate by name, confirm; this
+      contact is kept). Drop's circle pins are removed, not moved. Not yet
+      tried on a device.
 - [x] vCard (.vcf) import/export alongside CSV — 2026-11-01 (not yet tried on a device):
   - [x] Engine: `src/lib/vcard.ts` (unfold/fold at 75 octets, params,
         escapes, multi-card files) + `src/features/contacts/vcardMapping.ts`

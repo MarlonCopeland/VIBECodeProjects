@@ -37,7 +37,7 @@ export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
-  const { contacts, contactById, gradeFor, interactionsFor, logInteraction, deleteContact } = useContacts();
+  const { contacts, contactById, gradeFor, interactionsFor, logInteraction, deleteContact, mergeContacts } = useContacts();
   const { gradingConfig } = useAppSettings();
   const weights = gradingConfig.weights;
   const [logKind, setLogKind] = useState<InteractionKind>('note');
@@ -49,6 +49,9 @@ export default function ContactDetailScreen() {
   const [alsoWithIds, setAlsoWithIds] = useState<string[]>([]);
   const [alsoQuery, setAlsoQuery] = useState('');
   const [alsoOpen, setAlsoOpen] = useState(false);
+  // "Merge with…": fold a duplicate into THIS contact (this one is kept).
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState('');
 
   const contact = id ? contactById(id) : undefined;
   if (!contact) {
@@ -390,10 +393,46 @@ export default function ContactDetailScreen() {
         )}
       </View>
 
+      {mergeOpen ? (
+        <Card style={{ marginTop: spacing.xxl }}>
+          <Text variant="label" tone="muted">MERGE A DUPLICATE INTO THIS CONTACT</Text>
+          <Text variant="caption" tone="muted" style={{ marginVertical: spacing.xs }}>
+            {`${name} is kept. The other contact's numbers, emails, premises, notes and history move here, then it is deleted.`}
+          </Text>
+          <TextField placeholder="Find the duplicate by name" autoCapitalize="none" value={mergeQuery} onChangeText={setMergeQuery} />
+          {searchContactsForGroup(contacts, mergeQuery, [contact.id]).map((c) => {
+            const otherName = `${c.firstName} ${c.lastName}`.trim();
+            return (
+              <Pressable
+                key={c.id}
+                accessibilityRole="button"
+                style={{ paddingVertical: spacing.xs }}
+                onPress={() =>
+                  confirm('Merge contacts?', `Merge ${otherName} into ${name}? ${otherName} will be removed.`, () => {
+                    void mergeContacts(contact.id, c.id)
+                      .then(() => {
+                        setMergeOpen(false);
+                        setMergeQuery('');
+                        notify('Merged', `${otherName} was merged into ${name}.`);
+                      })
+                      .catch((e) => notify('Merge failed', e instanceof Error ? e.message : String(e)));
+                  })
+                }
+              >
+                <Text variant="label">{otherName}</Text>
+              </Pressable>
+            );
+          })}
+          <Button title="Cancel" variant="ghost" onPress={() => setMergeOpen(false)} />
+        </Card>
+      ) : (
+        <Button title="Merge with…" variant="secondary" style={{ marginTop: spacing.xxl }} onPress={() => setMergeOpen(true)} />
+      )}
+
       <Button
         title="Delete contact"
         variant="danger"
-        style={{ marginTop: spacing.xxl }}
+        style={{ marginTop: spacing.md }}
         onPress={() =>
           confirm(
             'Delete contact?',
