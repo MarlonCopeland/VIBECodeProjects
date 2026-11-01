@@ -79,10 +79,10 @@ export default function MeScreen() {
           </Text>
 
           {me.phones.map((p, i) => (
-            <Text key={`p${i}`} variant="label" tone="muted">{`${p.label}: ${p.number}`}</Text>
+            <Text key={p.id ?? `p${i}`} variant="label" tone="muted">{`${p.label}: ${p.number}`}</Text>
           ))}
           {me.emails.map((e, i) => (
-            <Text key={`e${i}`} variant="label" tone="muted">{`${e.label}: ${e.address}`}</Text>
+            <Text key={e.id ?? `e${i}`} variant="label" tone="muted">{`${e.label}: ${e.address}`}</Text>
           ))}
 
           <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.lg, alignSelf: 'stretch' }}>

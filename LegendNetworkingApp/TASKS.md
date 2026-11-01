@@ -272,9 +272,15 @@ user can pin/exclude to override.
         browser were available in this environment. See
         [`TESTING.md`](./TESTING.md) for the manual walkthrough that closes
         this gap.
-- [ ] **8.2 Oplog groundwork**
-  - [ ] Add stable `id` to `PhoneEntry`/`EmailEntry` so phones/emails get
-        real per-item merge like premises already do
+- [x] **8.2 Oplog groundwork**
+  - [x] Add stable `id` to `PhoneEntry`/`EmailEntry` so phones/emails get
+        real per-item merge like premises already do — 2026-11-01: `id?`
+        on both types; `sqliteContacts.ts` reads the row ids back and
+        merges by id (`mergeEntries`: update-if-changed, tombstone removed,
+        insert id-less or foreign-id entries with a fresh id). No backfill
+        needed: the SQLite rows always had ids. Edit form keys/edits/removes
+        rows by id (new rows get a UUID). CSV/vCard/device import stay
+        id-less and get ids on insert. 5 new SQLite tests (69 total).
   - [x] ~~`changes` table + append-on-write~~ — superseded (2026-08-05): the
         tables themselves are the oplog. Every row's `updated_at` HLC is now
         bumped on every change INCLUDING tombstones, and `interactions`

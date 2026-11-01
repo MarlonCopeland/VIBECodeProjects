@@ -53,14 +53,13 @@ deleted_at    text?  -- tombstone instead of DELETE, so deletes can sync
 contact row — otherwise two devices each adding a different phone number
 offline would have one array-replace clobber the other's addition.
 
-**Where this lands today:** `phones`/`emails` don't yet have a stable
-per-item id in the domain model (`PhoneEntry`/`EmailEntry`), so those two
-are still whole-array replace under the hood (delete-and-reinsert on every
-edit) even though they live in normalized tables. `premises` already carry
-an `id`, so they get real upsert-by-id merge. Circle pins/excludes are
-keyed by `contact_id`, which is already stable, so they get real per-item
-merge too. Giving phone/email entries their own ids is a small, contained
-follow-up (Phase 8.2) — noted here rather than silently glossed over.
+**Where this lands today (Phase 8.2, 2026-11-01):** `PhoneEntry`/`EmailEntry`
+carry an optional stable `id` (the rows always had one; it is now surfaced
+in the domain model), so phones, emails and premises all get upsert-by-id
+merge: matched entries update in place only when they changed, missing ones
+are tombstoned, id-less ones (imports, seed) are inserted with a fresh id.
+Circle pins/excludes are keyed by `contact_id`, already stable, so they get
+real per-item merge too.
 
 ### 2. Change tracking — the tables ARE the oplog (built 2026-08-05)
 

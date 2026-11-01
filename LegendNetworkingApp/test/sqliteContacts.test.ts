@@ -81,13 +81,82 @@ describe('sqliteContacts: contacts', () => {
     expect(updated.premises).toEqual(created.premises);
   });
 
-  it('replaces phones wholesale on update (documented limitation — no stable id yet)', async () => {
+  it('gives stored phones/emails stable ids (assigned on create when missing)', async () => {
+    const created = await api.createContact(OWNER, baseInput());
+    expect(created.phones[0]!.id).toEqual(expect.any(String));
+    expect(created.emails[0]!.id).toEqual(expect.any(String));
+    const [listed] = await api.listContacts(OWNER);
+    expect(listed!.phones[0]!.id).toBe(created.phones[0]!.id);
+    expect(listed!.emails[0]!.id).toBe(created.emails[0]!.id);
+  });
+
+  it('merges phones by id — updates matched, keeps untouched, tombstones removed, inserts new', async () => {
+    const driver = createNodeSqlDriver();
+    const local = createSqliteContacts(driver, { ...fakeClock(), genId: randomUUID });
+    const created = await local.createContact(
+      OWNER,
+      baseInput({
+        phones: [
+          { label: 'mobile', number: '+15550001111' },
+          { label: 'work', number: '+15550002222' },
+          { label: 'home', number: '+15550003333' },
+        ],
+      }),
+    );
+    const [mobile, work, home] = created.phones as [
+      { id: string; label: string; number: string },
+      { id: string; label: string; number: string },
+      { id: string; label: string; number: string },
+    ];
+    const stamp = async (id: string) =>
+      (await driver.getFirstAsync<{ updated_at: string; deleted_at: string | null }>(
+        'SELECT updated_at, deleted_at FROM contact_phones WHERE id = ?',
+        [id],
+      ))!;
+    const mobileBefore = await stamp(mobile.id);
+
+    const updated = await local.updateContact(OWNER, created.id, {
+      phones: [mobile, { ...work, number: '+15550009999' }, { label: 'fax', number: '+15550004444' }],
+    });
+
+    expect(updated.phones).toHaveLength(3);
+    expect(updated.phones.find((p) => p.id === work.id)).toMatchObject({ number: '+15550009999' });
+    expect(updated.phones.find((p) => p.label === 'fax')!.id).toEqual(expect.any(String));
+    expect(updated.phones.some((p) => p.id === home.id)).toBe(false);
+    // Untouched entry keeps its row AND its HLC stamp (no spurious sync change).
+    expect(await stamp(mobile.id)).toEqual(mobileBefore);
+    // The edited one moved forward; the removed one is a tombstone, not gone.
+    expect((await stamp(work.id)).updated_at > mobileBefore.updated_at).toBe(true);
+    expect((await stamp(home.id)).deleted_at).not.toBeNull();
+  });
+
+  it('still accepts id-less phones on update (old whole-list callers / imports)', async () => {
     const created = await api.createContact(OWNER, baseInput());
     const updated = await api.updateContact(OWNER, created.id, {
       phones: [{ label: 'home', number: '+15559998888' }],
     });
+    expect(updated.phones).toMatchObject([{ label: 'home', number: '+15559998888' }]);
+    expect(updated.phones[0]!.id).not.toBe(created.phones[0]!.id);
+  });
 
-    expect(updated.phones).toEqual([{ label: 'home', number: '+15559998888' }]);
+  it('gives a phone/email copied from another contact a fresh id instead of colliding', async () => {
+    const a = await api.createContact(OWNER, baseInput());
+    const b = await api.createContact(OWNER, baseInput({ firstName: 'Bo', phones: [], emails: [] }));
+    const updatedB = await api.updateContact(OWNER, b.id, { phones: a.phones, emails: a.emails });
+    expect(updatedB.phones[0]!.id).not.toBe(a.phones[0]!.id);
+    expect(updatedB.emails[0]!.id).not.toBe(a.emails[0]!.id);
+    const aAgain = (await api.listContacts(OWNER)).find((c) => c.id === a.id)!;
+    expect(aAgain.phones).toEqual(a.phones);
+    expect(aAgain.emails).toEqual(a.emails);
+  });
+
+  it('merges emails by id too', async () => {
+    const created = await api.createContact(OWNER, baseInput());
+    const email = created.emails[0]!;
+    const updated = await api.updateContact(OWNER, created.id, {
+      emails: [{ ...email, address: 'countess@example.com' }],
+    });
+    expect(updated.emails).toEqual([{ id: email.id, label: 'work', address: 'countess@example.com' }]);
   });
 
   it('upserts premises by id — keeps unrelated ones, updates matched ones, drops removed ones', async () => {

@@ -48,11 +48,21 @@ export default function ContactEditScreen() {
   const [company, setCompany] = useState(existing?.company ?? '');
   const [title, setTitle] = useState(existing?.title ?? '');
   const [notes, setNotes] = useState(existing?.notes ?? '');
-  const [phones, setPhones] = useState<PhoneEntry[]>(
-    existing?.phones.length ? existing.phones : [{ label: 'mobile', number: '' }],
+  // Every row in the form gets an id up front (stored entries already have
+  // one; new rows get a fresh UUID). It is the React key, the handle the
+  // row editors update and remove by, and what storage merges on (Phase
+  // 8.2), so typing into one row never re-keys or overwrites another.
+  const [phones, setPhones] = useState<PhoneEntry[]>(() =>
+    (existing?.phones.length ? existing.phones : [{ label: 'mobile', number: '' }]).map((p) => ({
+      ...p,
+      id: p.id ?? Crypto.randomUUID(),
+    })),
   );
-  const [emails, setEmails] = useState<EmailEntry[]>(
-    existing?.emails.length ? existing.emails : [{ label: 'work', address: '' }],
+  const [emails, setEmails] = useState<EmailEntry[]>(() =>
+    (existing?.emails.length ? existing.emails : [{ label: 'work', address: '' }]).map((e) => ({
+      ...e,
+      id: e.id ?? Crypto.randomUUID(),
+    })),
   );
   const [metPlace, setMetPlace] = useState(existing?.whereMet?.placeName ?? '');
   const [metCity, setMetCity] = useState(existing?.whereMet?.city ?? '');
@@ -184,13 +194,13 @@ export default function ContactEditScreen() {
 
       <Card style={{ marginBottom: spacing.md }}>
         <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>PHONES</Text>
-        {phones.map((p, i) => (
-          <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
+        {phones.map((p) => (
+          <View key={p.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
             <View style={{ width: 90 }}>
               <TextField
                 placeholder="label"
                 value={p.label}
-                onChangeText={(v) => setPhones((prev) => prev.map((x, j) => (j === i ? { ...x, label: v } : x)))}
+                onChangeText={(v) => setPhones((prev) => prev.map((x) => (x.id === p.id ? { ...x, label: v } : x)))}
               />
             </View>
             <View style={{ flex: 1 }}>
@@ -198,29 +208,29 @@ export default function ContactEditScreen() {
                 placeholder="+1 555 123 4567"
                 keyboardType="phone-pad"
                 value={p.number}
-                onChangeText={(v) => setPhones((prev) => prev.map((x, j) => (j === i ? { ...x, number: v } : x)))}
+                onChangeText={(v) => setPhones((prev) => prev.map((x) => (x.id === p.id ? { ...x, number: v } : x)))}
               />
             </View>
-            {removeButton(() => setPhones((prev) => prev.filter((_, j) => j !== i)))}
+            {removeButton(() => setPhones((prev) => prev.filter((x) => x.id !== p.id)))}
           </View>
         ))}
         <Button
           title="Add phone"
           variant="ghost"
           fullWidth={false}
-          onPress={() => setPhones((prev) => [...prev, { label: 'other', number: '' }])}
+          onPress={() => setPhones((prev) => [...prev, { id: Crypto.randomUUID(), label: 'other', number: '' }])}
         />
       </Card>
 
       <Card style={{ marginBottom: spacing.md }}>
         <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>EMAILS</Text>
-        {emails.map((e, i) => (
-          <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
+        {emails.map((e) => (
+          <View key={e.id} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm }}>
             <View style={{ width: 90 }}>
               <TextField
                 placeholder="label"
                 value={e.label}
-                onChangeText={(v) => setEmails((prev) => prev.map((x, j) => (j === i ? { ...x, label: v } : x)))}
+                onChangeText={(v) => setEmails((prev) => prev.map((x) => (x.id === e.id ? { ...x, label: v } : x)))}
               />
             </View>
             <View style={{ flex: 1 }}>
@@ -229,17 +239,17 @@ export default function ContactEditScreen() {
                 keyboardType="email-address"
                 autoCapitalize="none"
                 value={e.address}
-                onChangeText={(v) => setEmails((prev) => prev.map((x, j) => (j === i ? { ...x, address: v } : x)))}
+                onChangeText={(v) => setEmails((prev) => prev.map((x) => (x.id === e.id ? { ...x, address: v } : x)))}
               />
             </View>
-            {removeButton(() => setEmails((prev) => prev.filter((_, j) => j !== i)))}
+            {removeButton(() => setEmails((prev) => prev.filter((x) => x.id !== e.id)))}
           </View>
         ))}
         <Button
           title="Add email"
           variant="ghost"
           fullWidth={false}
-          onPress={() => setEmails((prev) => [...prev, { label: 'other', address: '' }])}
+          onPress={() => setEmails((prev) => [...prev, { id: Crypto.randomUUID(), label: 'other', address: '' }])}
         />
       </Card>
 

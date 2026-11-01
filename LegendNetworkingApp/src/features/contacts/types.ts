@@ -24,13 +24,23 @@ export interface Premise {
   tags: string[];
 }
 
+// Phone/email entries carry a stable `id` (Phase 8.2) so storage can merge
+// them per item, like premises: editing one number on one device and adding
+// another on a second device no longer clobbers either. The id is optional on
+// purpose: entries that have never been stored (CSV / vCard / phone-book
+// import, the seed, a fresh row in the edit form before save) may arrive
+// without one and storage assigns it on first write. Every entry READ back
+// from storage has one: the SQLite rows always had ids, they just weren't
+// surfaced, so existing data needs no backfill.
 export interface PhoneEntry {
+  id?: string;
   /** e.g. "mobile", "work" */
   label: string;
   number: string;
 }
 
 export interface EmailEntry {
+  id?: string;
   label: string;
   address: string;
 }
