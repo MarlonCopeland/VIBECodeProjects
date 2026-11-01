@@ -30,6 +30,10 @@ export {
   type CsvSingleField,
 } from './csvMapping';
 
+// vCard (.vcf) import/export — pure engine in ./vcardMapping, re-exported for
+// the same one-import-site reason.
+export { contactsToVcard, vcardToContacts, vcardsToContacts, type VCardImportResult } from './vcardMapping';
+
 export const CSV_HEADER = [
   'first_name',
   'last_name',
@@ -283,10 +287,11 @@ export async function pickCsvText(): Promise<string | null> {
   return FileSystem.readAsStringAsync(uri);
 }
 
-/** Write CSV text to a file and open the platform share sheet (web: download). */
-export async function shareCsv(fileName: string, csvText: string): Promise<void> {
+/** Write CSV text to a file and open the platform share sheet (web: download).
+ * `mimeType` lets the same plumbing share a .vcf (text/vcard). */
+export async function shareCsv(fileName: string, csvText: string, mimeType = 'text/csv'): Promise<void> {
   if (Platform.OS === 'web') {
-    const blob = new Blob([csvText], { type: 'text/csv' });
+    const blob = new Blob([csvText], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -300,7 +305,7 @@ export async function shareCsv(fileName: string, csvText: string): Promise<void>
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(uri, csvText);
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: fileName });
+    await Sharing.shareAsync(uri, { mimeType, dialogTitle: fileName });
   } else {
     throw new Error('Sharing is not available on this device.');
   }
