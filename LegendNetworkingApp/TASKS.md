@@ -360,8 +360,16 @@ user can pin/exclude to override.
       7 cases). Contact edit form shows up to 4 label / 5 tag chips under
       each premise field while typing. Not yet tried on a device.
 - [ ] Grade history sparkline on contact detail
-- [ ] Group visit logging ("I saw these 5 people at X event" → one action logs
-      a `premise` interaction for all)
+- [x] Group visit logging ("I saw these 5 people at X event" → one action logs
+      a `premise` interaction for all) — 2026-11-01: contact detail's "Log an
+      interaction" card has an "Also with…" picker (name search, removable
+      chips); "Log it for N people" logs the chosen kind (premise, visit, any)
+      with one shared timestamp and note for everyone, through the normal
+      `logInteraction` path one by one (partial failure reports "k of N").
+      Pure logic in `src/features/contacts/groupLog.ts`
+      (`buildGroupInteractions`, `searchContactsForGroup`;
+      `test/groupLog.test.ts`, 5 cases). No per-contact `premiseId` is set.
+      Not yet tried on a device.
 
 ---
 

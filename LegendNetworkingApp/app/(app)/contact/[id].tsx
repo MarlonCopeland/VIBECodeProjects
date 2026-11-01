@@ -1,6 +1,7 @@
 // app/(app)/contact/[id].tsx
 // Contact detail: grade hero, where-met + premises, quick actions that log
-// interactions automatically, a manual "log interaction" composer, and the
+// interactions automatically, a manual "log interaction" composer (with an
+// "Also with…" picker that logs the same interaction for a group), and the
 // full interaction history.
 
 import React, { useState } from 'react';
@@ -20,6 +21,7 @@ import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge
 import { pointsToNextTier } from '../../../src/features/contacts/grading';
 import type { InteractionKind } from '../../../src/features/contacts/types';
 import { notify, confirm } from '../../../src/lib/notify';
+import { buildGroupInteractions, searchContactsForGroup } from '../../../src/features/contacts/groupLog';
 
 const KIND_META: Record<InteractionKind, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   call: { label: 'Call', icon: 'call-outline' },
@@ -34,13 +36,18 @@ export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
-  const { contactById, gradeFor, interactionsFor, logInteraction, deleteContact } = useContacts();
+  const { contacts, contactById, gradeFor, interactionsFor, logInteraction, deleteContact } = useContacts();
   const { gradingConfig } = useAppSettings();
   const weights = gradingConfig.weights;
   const [logKind, setLogKind] = useState<InteractionKind>('note');
   const [logNote, setLogNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [chooser, setChooser] = useState<'call' | 'text' | 'email' | null>(null);
+  // "Also with…": other people this same interaction should be logged for
+  // (group visit / event). Empty = the ordinary single-contact log.
+  const [alsoWithIds, setAlsoWithIds] = useState<string[]>([]);
+  const [alsoQuery, setAlsoQuery] = useState('');
+  const [alsoOpen, setAlsoOpen] = useState(false);
 
   const contact = id ? contactById(id) : undefined;
   if (!contact) {
@@ -244,15 +251,103 @@ export default function ContactDetailScreen() {
           value={logNote}
           onChangeText={setLogNote}
         />
+
+        {alsoWithIds.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {alsoWithIds.map((otherId) => {
+              const other = contactById(otherId);
+              return (
+                <Pressable
+                  key={otherId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${other?.firstName ?? 'contact'} from this log`}
+                  onPress={() => setAlsoWithIds((prev) => prev.filter((x) => x !== otherId))}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: radius.pill,
+                    backgroundColor: colors.primary,
+                    paddingVertical: 3,
+                    paddingHorizontal: spacing.sm,
+                  }}
+                >
+                  <Text variant="caption" tone="inverse">
+                    {other ? `${other.firstName} ${other.lastName}`.trim() : 'Unknown'}
+                  </Text>
+                  <Ionicons name="close" size={12} color={colors.textInverse} />
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {alsoOpen ? (
+          <>
+            <TextField
+              placeholder="Also with… (type a name)"
+              autoCapitalize="none"
+              value={alsoQuery}
+              onChangeText={setAlsoQuery}
+            />
+            <View style={{ gap: spacing.xs, marginBottom: spacing.sm }}>
+              {searchContactsForGroup(contacts, alsoQuery, [contact.id, ...alsoWithIds]).map((c) => (
+                <Pressable
+                  key={c.id}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setAlsoWithIds((prev) => [...prev, c.id]);
+                    setAlsoQuery('');
+                  }}
+                  style={{ paddingVertical: spacing.xs }}
+                >
+                  <Text variant="label">{`+ ${`${c.firstName} ${c.lastName}`.trim()}`}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : (
+          <Button
+            title="Also with…"
+            variant="ghost"
+            fullWidth={false}
+            onPress={() => setAlsoOpen(true)}
+            style={{ marginBottom: spacing.sm }}
+          />
+        )}
         <Button
-          title="Log it"
+          title={alsoWithIds.length > 0 ? `Log it for ${alsoWithIds.length + 1} people` : 'Log it'}
           loading={saving}
           onPress={() => {
             setSaving(true);
-            void logInteraction({ contactId: contact.id, kind: logKind, note: logNote || undefined })
-              .then(() => setLogNote(''))
-              .catch((e) => notify('Could not log', e instanceof Error ? e.message : String(e)))
-              .finally(() => setSaving(false));
+            // Anyone deleted since they were picked is dropped, not logged.
+            const others = alsoWithIds.filter((x) => contactById(x));
+            const batch = buildGroupInteractions(contact.id, others, {
+              kind: logKind,
+              note: logNote,
+              occurredAt: new Date().toISOString(),
+            });
+            // Sequential on purpose: each goes through the normal single-log
+            // path (state update + sync debounce), and a failure part-way
+            // tells the user exactly how many landed.
+            void (async () => {
+              let done = 0;
+              try {
+                for (const input of batch) {
+                  await logInteraction(input);
+                  done += 1;
+                }
+                setLogNote('');
+                setAlsoWithIds([]);
+                setAlsoQuery('');
+                setAlsoOpen(false);
+                if (batch.length > 1) notify('Logged', `${KIND_META[logKind].label} logged for ${batch.length} people.`);
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                notify('Could not log', batch.length > 1 ? `${done} of ${batch.length} logged. ${msg}` : msg);
+              } finally {
+                setSaving(false);
+              }
+            })();
           }}
         />
       </Card>
