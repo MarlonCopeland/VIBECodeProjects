@@ -138,6 +138,50 @@ export function computeGrade(
   };
 }
 
+export interface GradeHistoryPoint {
+  /** Sample time, epoch ms. */
+  atMs: number;
+  score: number;
+}
+
+export interface GradeHistoryOptions {
+  /** Number of samples, oldest first, the last one at `nowMs` (default 27:
+   * weekly over ~6 months). */
+  points?: number;
+  /** Days between samples (default 7). */
+  stepDays?: number;
+}
+
+/**
+ * The score as it WAS at evenly spaced moments up to `nowMs`, for the
+ * contact-screen sparkline. Computed, not stored: grading is a pure function
+ * of the log and a clock, so replaying it at past times under the user's
+ * current weights/half-life gives a history that always agrees with today's
+ * grade (the last point equals computeGrade(...).score). Interactions after
+ * a sample's time are left out of that sample: interactionValue clamps
+ * negative ages to 0, so a future interaction would otherwise count at full
+ * weight in the past.
+ */
+export function gradeHistory(
+  interactions: Interaction[],
+  nowMs: number = Date.now(),
+  config: GradingConfig = DEFAULT_GRADING_CONFIG,
+  opts: GradeHistoryOptions = {},
+): GradeHistoryPoint[] {
+  const points = Math.max(1, Math.floor(opts.points ?? 27));
+  const stepMs = (opts.stepDays ?? 7) * MS_PER_DAY;
+  const dated = interactions
+    .map((it) => ({ it, ts: Date.parse(it.occurredAt) }))
+    .filter((d) => !Number.isNaN(d.ts));
+  const out: GradeHistoryPoint[] = [];
+  for (let i = points - 1; i >= 0; i--) {
+    const atMs = nowMs - i * stepMs;
+    const upTo = dated.filter((d) => d.ts <= atMs).map((d) => d.it);
+    out.push({ atMs, score: computeGrade(upTo, atMs, config).score });
+  }
+  return out;
+}
+
 /** Human-readable freshness, e.g. "today", "3d ago", "5mo ago", "never". */
 export function describeFreshness(freshnessDays: number | null): string {
   if (freshnessDays === null) return 'never';

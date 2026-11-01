@@ -18,7 +18,8 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useContacts } from '../../../src/features/contacts/ContactsContext';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
-import { pointsToNextTier } from '../../../src/features/contacts/grading';
+import { gradeHistory, pointsToNextTier } from '../../../src/features/contacts/grading';
+import { GradeSparkline } from '../../../src/features/contacts/components/GradeSparkline';
 import type { InteractionKind } from '../../../src/features/contacts/types';
 import { notify, confirm } from '../../../src/lib/notify';
 import { buildGroupInteractions, searchContactsForGroup } from '../../../src/features/contacts/groupLog';
@@ -62,6 +63,9 @@ export default function ContactDetailScreen() {
   const history = interactionsFor(contact.id);
   const name = `${contact.firstName} ${contact.lastName}`.trim();
   const next = pointsToNextTier(grade.score, gradingConfig.tiers);
+  // Weekly score over ~6 months, replayed from the log under the current
+  // settings (nothing stored); hidden for contacts with no history at all.
+  const scoreHistory = history.length > 0 ? gradeHistory(history, Date.now(), gradingConfig) : [];
 
   const act = async (kind: InteractionKind, open?: () => Promise<unknown>) => {
     try {
@@ -148,6 +152,7 @@ export default function ContactDetailScreen() {
       />
 
       <GradeBadge grade={grade} variant="hero" />
+      <GradeSparkline history={scoreHistory} color={grade.tier.color} tiers={gradingConfig.tiers} />
       {next ? (
         <Text variant="caption" tone="muted" style={{ marginTop: spacing.xs }}>
           {`${next.points} points to ${next.next.label} — a call is +${weights.call}, a visit +${weights.visit}.`}

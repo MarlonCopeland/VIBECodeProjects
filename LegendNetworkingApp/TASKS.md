@@ -359,7 +359,14 @@ user can pin/exclude to override.
       comma and skips tags already listed; `test/premiseSuggest.test.ts`,
       7 cases). Contact edit form shows up to 4 label / 5 tag chips under
       each premise field while typing. Not yet tried on a device.
-- [ ] Grade history sparkline on contact detail
+- [x] Grade history sparkline on contact detail — 2026-11-01: computed, not
+      stored. `gradeHistory()` in `grading.ts` replays `computeGrade` at 27
+      weekly samples (~6 months) under the current weights/half-life,
+      excluding interactions after each sample (3 new cases in
+      `test/grading.test.ts`). `GradeSparkline.tsx` (react-native-svg, fixed
+      0-100 axis, dashed tier guides, "up N / down N / steady" caption) sits
+      under the grade badge; hidden when there's no history. Not yet tried
+      on a device.
 - [x] Group visit logging ("I saw these 5 people at X event" → one action logs
       a `premise` interaction for all) — 2026-11-01: contact detail's "Log an
       interaction" card has an "Also with…" picker (name search, removable

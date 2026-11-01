@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   computeGrade,
+  gradeHistory,
   tierForScore,
   DEFAULT_GRADING_CONFIG,
   type GradingConfig,
@@ -103,5 +104,35 @@ describe('grading — user config', () => {
     const sorted = [...tiers].sort((a, b) => a.min - b.min);
     expect(tierForScore(20, sorted).id).toBe('common');
     expect(tierForScore(60, sorted).id).toBe('legendary');
+  });
+});
+
+describe('gradeHistory', () => {
+  it('samples weekly up to now, oldest first, ending at the current score', () => {
+    const log = [interaction('visit', 3), interaction('call', 40), interaction('text', 100)];
+    const h = gradeHistory(log, NOW, DEFAULT_GRADING_CONFIG);
+    expect(h).toHaveLength(27);
+    expect(h[26]!.atMs).toBe(NOW);
+    expect(h[0]!.atMs).toBe(NOW - 26 * 7 * 86_400_000);
+    expect(h[26]!.score).toBe(computeGrade(log, NOW, DEFAULT_GRADING_CONFIG).score);
+    for (let i = 1; i < h.length; i++) expect(h[i]!.atMs - h[i - 1]!.atMs).toBe(7 * 86_400_000);
+  });
+
+  it('leaves later interactions out of earlier samples', () => {
+    // Only a visit 3 days ago: every sample before it must be 0, not 15.
+    const h = gradeHistory([interaction('visit', 3)], NOW, DEFAULT_GRADING_CONFIG, { points: 4, stepDays: 7 });
+    expect(h.map((p) => p.score)).toEqual([0, 0, 0, computeGrade([interaction('visit', 3)], NOW).score]);
+  });
+
+  it('shows decay between touches and honours custom options and config', () => {
+    const log = [interaction('visit', 60)];
+    const h = gradeHistory(log, NOW, DEFAULT_GRADING_CONFIG, { points: 3, stepDays: 30 });
+    // 60d ago: fresh 15; 30d later: decayed; now: decayed further.
+    expect(h[0]!.score).toBe(15);
+    expect(h[1]!.score).toBeLessThan(15);
+    expect(h[2]!.score).toBeLessThan(h[1]!.score);
+    const flat = gradeHistory(log, NOW, { ...DEFAULT_GRADING_CONFIG, decayEnabled: false }, { points: 3, stepDays: 30 });
+    expect(flat.map((p) => p.score)).toEqual([15, 15, 15]);
+    expect(gradeHistory([], NOW, DEFAULT_GRADING_CONFIG, { points: 0 })).toEqual([{ atMs: NOW, score: 0 }]);
   });
 });
