@@ -215,11 +215,17 @@ user can pin/exclude to override.
       the project URL. **Remaining manual step:** paste the anon key into
       `.env` (`SUPABASE_ANON_KEY=`, from Dashboard → Project Settings → API
       Keys), then smoke-test sign-up + contact CRUD in the app.
-- [ ] Import/export entry points in Settings too (currently only on the
-      Contacts tab header)
+- [x] Import/export entry points in Settings too (currently only on the
+      Contacts tab header) — 2026-11-01: Settings → YOUR DATA now has an
+      "Import contacts" card (Import from phone / Import from CSV, both open
+      the same `contacts-import` screen as the Contacts + menu) above the
+      existing "Export everything" card. Not yet eyeballed on a device.
 - [ ] "Fading contacts" nudge: settings toggle + local notification when a
       contact is about to drop a tier (uses existing notifications module)
-- [ ] Grade weights/half-life user-tunable in Settings (persisted)
+- [x] Grade weights/half-life user-tunable in Settings (persisted) — already
+      built (found 2026-11-01): `app/(app)/settings/grading.tsx` edits
+      weights, half-life, decay toggle and tier thresholds, persisted via
+      `AppSettingsContext` → `storage`
 - [ ] Empty states, error toasts, loading polish across new screens
 - [ ] Update `documentation.md` + README screenshots; delete dead template
       copy that no longer applies

@@ -288,6 +288,21 @@ export default function SettingsScreen() {
       <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>
         YOUR DATA
       </Text>
+      {/* Import lives here as well as behind the Contacts tab's + menu, so
+          "where's my data?" has one obvious home. Both buttons open the same
+          contacts-import screen, which previews and skips duplicates before
+          anything is saved. */}
+      <Card style={{ marginBottom: spacing.md }}>
+        <Text weight="semibold">Import contacts</Text>
+        <Text variant="caption" tone="muted" style={{ marginBottom: spacing.md }}>
+          Pull from this device's address book, or map a .csv file (Legend's own export round-trips). You see a preview,
+          with duplicates flagged, before anything is added.
+        </Text>
+        <View style={{ gap: spacing.sm }}>
+          <Button title="Import from phone" variant="secondary" onPress={() => router.push('/contacts-import?mode=device')} />
+          <Button title="Import from CSV" variant="secondary" onPress={() => router.push('/contacts-import?mode=csv')} />
+        </View>
+      </Card>
       <Card style={{ marginBottom: spacing.xl }}>
         <Text weight="semibold">Export everything</Text>
         <Text variant="caption" tone="muted" style={{ marginBottom: spacing.md }}>
