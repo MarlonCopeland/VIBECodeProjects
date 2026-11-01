@@ -327,7 +327,7 @@ user can pin/exclude to override.
 
 - [ ] Reminders/recurring cadence per contact ("touch every 30 days")
 - [ ] Contact merge tool for import dupes
-- [ ] vCard (.vcf) import/export alongside CSV — **partial (2026-11-01)**:
+- [x] vCard (.vcf) import/export alongside CSV — 2026-11-01 (not yet tried on a device):
   - [x] Engine: `src/lib/vcard.ts` (unfold/fold at 75 octets, params,
         escapes, multi-card files) + `src/features/contacts/vcardMapping.ts`
         (`vcardToContacts` for 3.0/4.0: FN/N, NICKNAME, ORG, TITLE, TEL/EMAIL
@@ -339,9 +339,13 @@ user can pin/exclude to override.
   - [x] Export button: Settings → YOUR DATA → "Export contacts as vCard"
         (`shareCsv` gained an appended `mimeType` param). Not yet tried on
         a device.
-  - [ ] Import UI: a `?mode=vcf` path in `contacts-import.tsx` (pick a .vcf,
-        skip the CSV mapping step, straight to the dedupe preview) and
-        a menu entry. 2.1 QUOTED-PRINTABLE values are not decoded.
+  - [x] Import UI: `contacts-import.tsx?mode=vcf` picks a .vcf
+        (`pickVcfText`, shares the picker with `pickCsvText`), runs
+        `vcardToContacts`, skips column mapping and lands on the shared
+        dedupe preview; nameless cards show in the "card(s) skipped"
+        banner, a file with no usable cards shows the failure screen.
+        Entry points: Contacts + menu ("Import from vCard") and Settings →
+        YOUR DATA. Known gap: 2.1 QUOTED-PRINTABLE values are not decoded.
 - [ ] Premise autocomplete from existing tags
 - [ ] Grade history sparkline on contact detail
 - [ ] Group visit logging ("I saw these 5 people at X event" → one action logs

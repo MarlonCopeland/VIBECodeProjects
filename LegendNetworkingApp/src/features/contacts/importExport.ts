@@ -271,10 +271,21 @@ export async function fetchDeviceContacts(): Promise<DeviceContactsResult> {
 // ---------------------------------------------------------------------------
 
 /** Open a file picker and return the chosen CSV's text (null if canceled). */
-export async function pickCsvText(): Promise<string | null> {
+export function pickCsvText(): Promise<string | null> {
+  return pickTextFile(['text/csv', 'text/comma-separated-values', 'text/plain']);
+}
+
+/** Open a file picker for a .vcf and return its text (null if canceled).
+ * Android often reports .vcf as text/x-vcard (or nothing useful), so the
+ * plain-text and catch-all types keep the file selectable there. */
+export function pickVcfText(): Promise<string | null> {
+  return pickTextFile(['text/vcard', 'text/x-vcard', 'text/directory', 'text/plain', '*/*']);
+}
+
+async function pickTextFile(types: string[]): Promise<string | null> {
   const DocumentPicker = await import('expo-document-picker');
   const result = await DocumentPicker.getDocumentAsync({
-    type: ['text/csv', 'text/comma-separated-values', 'text/plain'],
+    type: types,
     copyToCacheDirectory: true,
   });
   if (result.canceled || result.assets.length === 0) return null;

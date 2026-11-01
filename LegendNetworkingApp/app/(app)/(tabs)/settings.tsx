@@ -309,12 +309,13 @@ export default function SettingsScreen() {
       <Card style={{ marginBottom: spacing.md }}>
         <Text weight="semibold">Import contacts</Text>
         <Text variant="caption" tone="muted" style={{ marginBottom: spacing.md }}>
-          Pull from this device's address book, or map a .csv file (Legend's own export round-trips). You see a preview,
+          Pull from this device's address book, map a .csv file (Legend's own export round-trips), or open a .vcf from another app. You see a preview,
           with duplicates flagged, before anything is added.
         </Text>
         <View style={{ gap: spacing.sm }}>
           <Button title="Import from phone" variant="secondary" onPress={() => router.push('/contacts-import?mode=device')} />
           <Button title="Import from CSV" variant="secondary" onPress={() => router.push('/contacts-import?mode=csv')} />
+          <Button title="Import from vCard (.vcf)" variant="secondary" onPress={() => router.push('/contacts-import?mode=vcf')} />
         </View>
       </Card>
       <Card style={{ marginBottom: spacing.xl }}>

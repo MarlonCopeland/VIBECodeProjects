@@ -3,8 +3,10 @@
 // the preview. ?mode=csv opens a file picker, then a FIELD-MAPPING step —
 // Legend's own exports auto-map 1:1, foreign CSVs (Google Contacts, Outlook,
 // spreadsheets) get best-effort guesses the user can correct — then the same
-// dedupe/preview/confirm as device import. Nothing imports without explicit
-// confirmation.
+// dedupe/preview/confirm as device import. ?mode=vcf picks a .vcf and goes
+// straight to that same preview (a vCard's fields are named, so there is
+// nothing to map); cards without a name show up as skipped. Nothing imports
+// without explicit confirmation.
 
 import React, { useEffect, useMemo, useState } from 'react';
 import { Linking, Platform, Pressable, View } from 'react-native';
@@ -26,7 +28,9 @@ import {
   guessMapping,
   parseCsvTable,
   pickCsvText,
+  pickVcfText,
   presentContactAccessPicker,
+  vcardToContacts,
   type ContactsAccess,
   type CsvField,
   type CsvMapping,
@@ -72,6 +76,23 @@ export default function ContactsImportScreen() {
           if (!cancelled) {
             setCandidates(result.inputs);
             setAccess(result.access);
+          }
+        } else if (mode === 'vcf') {
+          const text = await pickVcfText();
+          if (text === null) {
+            if (!cancelled) router.back();
+            return;
+          }
+          const result = vcardToContacts(text);
+          if (!cancelled) {
+            // Nothing usable at all is a failure (wrong file, or every card
+            // nameless); otherwise the preview shows the skips in its banner.
+            if (result.inputs.length === 0) {
+              setFailure(result.errors.slice(0, 3).join(' ') || 'No contacts found in this file.');
+              return;
+            }
+            setErrors(result.errors);
+            setCandidates(result.inputs);
           }
         } else {
           const text = await pickCsvText();
@@ -315,7 +336,13 @@ export default function ContactsImportScreen() {
   if (!candidates) {
     return (
       <Screen center>
-        <Text tone="muted">{mode === 'device' ? 'Reading your phone book…' : 'Waiting for a CSV file…'}</Text>
+        <Text tone="muted">
+          {mode === 'device'
+            ? 'Reading your phone book…'
+            : mode === 'vcf'
+              ? 'Waiting for a vCard file…'
+              : 'Waiting for a CSV file…'}
+        </Text>
       </Screen>
     );
   }
@@ -382,7 +409,11 @@ export default function ContactsImportScreen() {
 
   return (
     <Screen scroll>
-      <Stack.Screen options={{ title: mode === 'device' ? 'Import from Phone' : 'Import from CSV' }} />
+      <Stack.Screen
+        options={{
+          title: mode === 'device' ? 'Import from Phone' : mode === 'vcf' ? 'Import from vCard' : 'Import from CSV',
+        }}
+      />
 
       <Text variant="title" weight="bold">{`${fresh.length} new`}</Text>
       <Text tone="muted" style={{ marginBottom: spacing.lg }}>
@@ -390,7 +421,7 @@ export default function ContactsImportScreen() {
       </Text>
 
       {errors.length > 0 ? (
-        <Banner kind="warning" message={`${errors.length} row(s) skipped: ${errors.slice(0, 3).join(' ')}`} />
+        <Banner kind="warning" message={`${errors.length} ${mode === 'vcf' ? 'card' : 'row'}(s) skipped: ${errors.slice(0, 3).join(' ')}`} />
       ) : null}
 
       {preview.length > 0 ? (
