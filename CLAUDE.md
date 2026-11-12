@@ -39,3 +39,20 @@ npm run typecheck && npm run check:imports && npm test
 `check:imports` catches imports that resolve on Windows but break on EAS's
 case-sensitive Linux builders, or that are untracked by git (EAS builds from
 the git archive, not the working tree).
+
+## UI design work
+
+The Anthropic `frontend-design` skill is vendored at
+`.claude/skills/frontend-design/` (upstream: `anthropics/skills`, Apache-2.0).
+Use it for any new screen, redesign, or visual polish in **UnjadedDigital**,
+**VendorFinder**, and **LegendNetworkingApp**. (BraMan lives in its own repo,
+`C:\repo\BraMan`, with its own copy of the skill.)
+VendorFinder and LegendNetworkingApp also carry their own copy plus an
+app-level `CLAUDE.md` with app-specific design notes, so the skill loads
+when a session is opened directly in either app folder.
+
+These are Expo / React Native apps, so translate the skill's web
+guidance: CSS tokens → a theme object / `StyleSheet`, Google Fonts →
+`expo-font`, hover states → press feedback, and respect each app's existing
+theme files rather than inventing a parallel palette. Legend's cosmetics store
+(borders, backgrounds, color schemes) is a natural place to spend boldness.
