@@ -1,59 +1,41 @@
 # VIBES monorepo
 
-Several independent apps live side by side, each with its own `package.json`,
-`node_modules`, and Node requirement:
+What is left here:
 
 | Directory | Stack | Node |
 | --- | --- | --- |
-| `LegendNetworkingApp/` | Expo SDK 54 + Supabase | **>=22** (`.nvmrc` = 22) |
-| `LegendDesktop/` | Electron + Vite + React DOM; imports `../LegendNetworkingApp/src` | **>=22** (`.nvmrc` = 22) |
-| `Net_Delver/` | Godot 4.6 | n/a |
-| `UnjadedDigital/`, `VendorFinder/` | Expo templates | see each `.nvmrc` |
+| `UnjadedDigital/` | Expo template (Supabase) | see its `.nvmrc` |
+| `android-testing/` | Emulator + Expo Go launcher for the apps below | n/a |
 
-## Before running npm / npx / expo / eas
+## Apps that moved to their own repos (2026-11-12)
 
-1. **`cd` into the app directory first.** These commands must never run from
-   the repo root — there is no `package.json` there, and `npm install` at the
-   root silently creates a stray root `package.json` + `node_modules` that
-   shadows the real one. (This has happened; it is not hypothetical.)
-2. **Check the Node version against that app's `.nvmrc`:**
-   ```
-   node -v && cat .nvmrc
-   ```
-   Mismatches do not fail loudly — they fail *silently and partially*. Node 20
-   in LegendNetworkingApp installs fine, typechecks fine, and simply skips
-   `test/sqliteContacts.test.ts` because `node:sqlite` does not exist before
-   Node 22, so the suite reports green-ish while a whole file never ran.
-3. Switch with `nvm use 22.17.0` (Windows nvm switches globally — say so before
-   changing it, since other projects in this repo may be pinned elsewhere).
+| App | Now lives at | Remote |
+| --- | --- | --- |
+| Legend (phone) | `C:\repo\LegendNetworking\mobile` | `UnjadedDigitalProducts/LegendNetworking` |
+| Legend Desktop | `C:\repo\LegendNetworking\desktop` | same repo |
+| Vendor Finder | `C:\repo\VendorFinder` | `UnjadedDigitalProducts/VendorFinder` |
+| BraMan | `C:\repo\BraMan` | its own repo |
 
-`engine-strict=true` in `LegendNetworkingApp/.npmrc` makes `engines` a real
-gate for installs, but it does not cover `npm test` / `npm run` — hence the
-manual check above.
+History was carried over with `git subtree split`. Do new work on these apps
+in their own repos, not here; the old `LegendNetworkingApp/`, `LegendDesktop/`,
+and `VendorFinder/` folders were removed from this repo.
 
-## Verifying LegendNetworkingApp
+## Before running npm / npx / expo
 
-```
-npm run typecheck && npm run check:imports && npm test
-```
-
-`check:imports` catches imports that resolve on Windows but break on EAS's
-case-sensitive Linux builders, or that are untracked by git (EAS builds from
-the git archive, not the working tree).
+1. **`cd` into the app directory first.** There is no `package.json` at the
+   repo root, and `npm install` here silently creates a stray root
+   `package.json` + `node_modules`. (This has happened; it is not hypothetical.)
+2. **Check the Node version against that app's `.nvmrc`:** `node -v && cat .nvmrc`.
+   Windows nvm switches globally, so say so before running `nvm use`.
 
 ## UI design work
 
 The Anthropic `frontend-design` skill is vendored at
 `.claude/skills/frontend-design/` (upstream: `anthropics/skills`, Apache-2.0).
-Use it for any new screen, redesign, or visual polish in **UnjadedDigital**,
-**VendorFinder**, and **LegendNetworkingApp**. (BraMan lives in its own repo,
-`C:\repo\BraMan`, with its own copy of the skill.)
-VendorFinder and LegendNetworkingApp also carry their own copy plus an
-app-level `CLAUDE.md` with app-specific design notes, so the skill loads
-when a session is opened directly in either app folder.
+Use it for any new screen, redesign, or visual polish in **UnjadedDigital**.
+LegendNetworking and VendorFinder carry their own copies.
 
 These are Expo / React Native apps, so translate the skill's web
 guidance: CSS tokens → a theme object / `StyleSheet`, Google Fonts →
 `expo-font`, hover states → press feedback, and respect each app's existing
-theme files rather than inventing a parallel palette. Legend's cosmetics store
-(borders, backgrounds, color schemes) is a natural place to spend boldness.
+theme files rather than inventing a parallel palette.

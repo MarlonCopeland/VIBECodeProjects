@@ -41,7 +41,7 @@ $Apks = "$env:LOCALAPPDATA\Temp\android-setup"
 # each other or with any other Metro already running on this machine.
 $Config = @{
   VendorFinder = @{
-    Path       = 'C:\repo\VIBES\VendorFinder'
+    Path       = 'C:\repo\VendorFinder'
     Avd        = 'VendorFinder_SDK52'
     Serial     = 'emulator-5554'
     Port       = 5554
@@ -51,7 +51,7 @@ $Config = @{
     Offline    = $false
   }
   Legend = @{
-    Path       = 'C:\repo\VIBES\LegendNetworkingApp'
+    Path       = 'C:\repo\LegendNetworking\mobile'
     Avd        = 'Legend_SDK54'
     Serial     = 'emulator-5556'
     Port       = 5556
