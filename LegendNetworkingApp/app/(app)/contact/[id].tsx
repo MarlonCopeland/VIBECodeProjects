@@ -1,6 +1,7 @@
 // app/(app)/contact/[id].tsx
 // Contact detail: grade hero, where-met + premises, quick actions that log
-// interactions automatically, a manual "log interaction" composer, and the
+// interactions automatically, a manual "log interaction" composer (with an
+// "Also with…" picker that logs the same interaction for a group), and the
 // full interaction history.
 
 import React, { useState } from 'react';
@@ -18,9 +19,11 @@ import { useContacts } from '../../../src/features/contacts/ContactsContext';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
 import { KnowsSection } from '../../../src/features/contacts/components/KnowsSection';
-import { pointsToNextTier } from '../../../src/features/contacts/grading';
+import { gradeHistory, pointsToNextTier } from '../../../src/features/contacts/grading';
+import { GradeSparkline } from '../../../src/features/contacts/components/GradeSparkline';
 import type { InteractionKind } from '../../../src/features/contacts/types';
 import { notify, confirm } from '../../../src/lib/notify';
+import { buildGroupInteractions, searchContactsForGroup } from '../../../src/features/contacts/groupLog';
 
 const KIND_META: Record<InteractionKind, { label: string; icon: keyof typeof Ionicons.glyphMap }> = {
   call: { label: 'Call', icon: 'call-outline' },
@@ -35,13 +38,21 @@ export default function ContactDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const { colors, spacing, radius } = useTheme();
-  const { contactById, gradeFor, interactionsFor, logInteraction, deleteContact } = useContacts();
+  const { contacts, contactById, gradeFor, interactionsFor, logInteraction, deleteContact, mergeContacts } = useContacts();
   const { gradingConfig } = useAppSettings();
   const weights = gradingConfig.weights;
   const [logKind, setLogKind] = useState<InteractionKind>('note');
   const [logNote, setLogNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [chooser, setChooser] = useState<'call' | 'text' | 'email' | null>(null);
+  // "Also with…": other people this same interaction should be logged for
+  // (group visit / event). Empty = the ordinary single-contact log.
+  const [alsoWithIds, setAlsoWithIds] = useState<string[]>([]);
+  const [alsoQuery, setAlsoQuery] = useState('');
+  const [alsoOpen, setAlsoOpen] = useState(false);
+  // "Merge with…": fold a duplicate into THIS contact (this one is kept).
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeQuery, setMergeQuery] = useState('');
 
   const contact = id ? contactById(id) : undefined;
   if (!contact) {
@@ -56,6 +67,9 @@ export default function ContactDetailScreen() {
   const history = interactionsFor(contact.id);
   const name = `${contact.firstName} ${contact.lastName}`.trim();
   const next = pointsToNextTier(grade.score, gradingConfig.tiers);
+  // Weekly score over ~6 months, replayed from the log under the current
+  // settings (nothing stored); hidden for contacts with no history at all.
+  const scoreHistory = history.length > 0 ? gradeHistory(history, Date.now(), gradingConfig) : [];
 
   const act = async (kind: InteractionKind, open?: () => Promise<unknown>) => {
     try {
@@ -142,6 +156,7 @@ export default function ContactDetailScreen() {
       />
 
       <GradeBadge grade={grade} variant="hero" />
+      <GradeSparkline history={scoreHistory} color={grade.tier.color} tiers={gradingConfig.tiers} />
       {next ? (
         <Text variant="caption" tone="muted" style={{ marginTop: spacing.xs }}>
           {`${next.points} points to ${next.next.label} — a call is +${weights.call}, a visit +${weights.visit}.`}
@@ -247,15 +262,103 @@ export default function ContactDetailScreen() {
           value={logNote}
           onChangeText={setLogNote}
         />
+
+        {alsoWithIds.length > 0 ? (
+          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: spacing.xs, marginBottom: spacing.sm }}>
+            {alsoWithIds.map((otherId) => {
+              const other = contactById(otherId);
+              return (
+                <Pressable
+                  key={otherId}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Remove ${other?.firstName ?? 'contact'} from this log`}
+                  onPress={() => setAlsoWithIds((prev) => prev.filter((x) => x !== otherId))}
+                  style={{
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: 4,
+                    borderRadius: radius.pill,
+                    backgroundColor: colors.primary,
+                    paddingVertical: 3,
+                    paddingHorizontal: spacing.sm,
+                  }}
+                >
+                  <Text variant="caption" tone="inverse">
+                    {other ? `${other.firstName} ${other.lastName}`.trim() : 'Unknown'}
+                  </Text>
+                  <Ionicons name="close" size={12} color={colors.textInverse} />
+                </Pressable>
+              );
+            })}
+          </View>
+        ) : null}
+        {alsoOpen ? (
+          <>
+            <TextField
+              placeholder="Also with… (type a name)"
+              autoCapitalize="none"
+              value={alsoQuery}
+              onChangeText={setAlsoQuery}
+            />
+            <View style={{ gap: spacing.xs, marginBottom: spacing.sm }}>
+              {searchContactsForGroup(contacts, alsoQuery, [contact.id, ...alsoWithIds]).map((c) => (
+                <Pressable
+                  key={c.id}
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setAlsoWithIds((prev) => [...prev, c.id]);
+                    setAlsoQuery('');
+                  }}
+                  style={{ paddingVertical: spacing.xs }}
+                >
+                  <Text variant="label">{`+ ${`${c.firstName} ${c.lastName}`.trim()}`}</Text>
+                </Pressable>
+              ))}
+            </View>
+          </>
+        ) : (
+          <Button
+            title="Also with…"
+            variant="ghost"
+            fullWidth={false}
+            onPress={() => setAlsoOpen(true)}
+            style={{ marginBottom: spacing.sm }}
+          />
+        )}
         <Button
-          title="Log it"
+          title={alsoWithIds.length > 0 ? `Log it for ${alsoWithIds.length + 1} people` : 'Log it'}
           loading={saving}
           onPress={() => {
             setSaving(true);
-            void logInteraction({ contactId: contact.id, kind: logKind, note: logNote || undefined })
-              .then(() => setLogNote(''))
-              .catch((e) => notify('Could not log', e instanceof Error ? e.message : String(e)))
-              .finally(() => setSaving(false));
+            // Anyone deleted since they were picked is dropped, not logged.
+            const others = alsoWithIds.filter((x) => contactById(x));
+            const batch = buildGroupInteractions(contact.id, others, {
+              kind: logKind,
+              note: logNote,
+              occurredAt: new Date().toISOString(),
+            });
+            // Sequential on purpose: each goes through the normal single-log
+            // path (state update + sync debounce), and a failure part-way
+            // tells the user exactly how many landed.
+            void (async () => {
+              let done = 0;
+              try {
+                for (const input of batch) {
+                  await logInteraction(input);
+                  done += 1;
+                }
+                setLogNote('');
+                setAlsoWithIds([]);
+                setAlsoQuery('');
+                setAlsoOpen(false);
+                if (batch.length > 1) notify('Logged', `${KIND_META[logKind].label} logged for ${batch.length} people.`);
+              } catch (e) {
+                const msg = e instanceof Error ? e.message : String(e);
+                notify('Could not log', batch.length > 1 ? `${done} of ${batch.length} logged. ${msg}` : msg);
+              } finally {
+                setSaving(false);
+              }
+            })();
           }}
         />
       </Card>
@@ -293,10 +396,46 @@ export default function ContactDetailScreen() {
         )}
       </View>
 
+      {mergeOpen ? (
+        <Card style={{ marginTop: spacing.xxl }}>
+          <Text variant="label" tone="muted">MERGE A DUPLICATE INTO THIS CONTACT</Text>
+          <Text variant="caption" tone="muted" style={{ marginVertical: spacing.xs }}>
+            {`${name} is kept. The other contact's numbers, emails, premises, notes and history move here, then it is deleted.`}
+          </Text>
+          <TextField placeholder="Find the duplicate by name" autoCapitalize="none" value={mergeQuery} onChangeText={setMergeQuery} />
+          {searchContactsForGroup(contacts, mergeQuery, [contact.id]).map((c) => {
+            const otherName = `${c.firstName} ${c.lastName}`.trim();
+            return (
+              <Pressable
+                key={c.id}
+                accessibilityRole="button"
+                style={{ paddingVertical: spacing.xs }}
+                onPress={() =>
+                  confirm('Merge contacts?', `Merge ${otherName} into ${name}? ${otherName} will be removed.`, () => {
+                    void mergeContacts(contact.id, c.id)
+                      .then(() => {
+                        setMergeOpen(false);
+                        setMergeQuery('');
+                        notify('Merged', `${otherName} was merged into ${name}.`);
+                      })
+                      .catch((e) => notify('Merge failed', e instanceof Error ? e.message : String(e)));
+                  })
+                }
+              >
+                <Text variant="label">{otherName}</Text>
+              </Pressable>
+            );
+          })}
+          <Button title="Cancel" variant="ghost" onPress={() => setMergeOpen(false)} />
+        </Card>
+      ) : (
+        <Button title="Merge with…" variant="secondary" style={{ marginTop: spacing.xxl }} onPress={() => setMergeOpen(true)} />
+      )}
+
       <Button
         title="Delete contact"
         variant="danger"
-        style={{ marginTop: spacing.xxl }}
+        style={{ marginTop: spacing.md }}
         onPress={() =>
           confirm(
             'Delete contact?',

@@ -138,6 +138,11 @@ export interface ContactsApi {
   updateContact(ownerId: string, id: string, patch: ContactPatch): Promise<Contact>;
   /** Also removes the contact's interactions. */
   deleteContact(ownerId: string, id: string): Promise<void>;
+  /** Merge contact `dropId` into `keepId` (see contactMerge.ts): writes the
+   * merged fields onto keep, repoints drop's interactions and circle
+   * pins/excludes (where keep has none in that circle) to keep, then
+   * tombstones drop like deleteContact so sync sees it. Returns keep. */
+  mergeContacts(ownerId: string, keepId: string, dropId: string): Promise<Contact>;
 
   listInteractions(ownerId: string): Promise<Interaction[]>;
   logInteraction(ownerId: string, input: InteractionInput): Promise<Interaction>;
@@ -151,7 +156,7 @@ export interface ContactsApi {
   /**
    * Knows Connections. Deleting a contact deliberately leaves its links in
    * place (dangling) so a re-imported copy can be re-matched by fingerprint;
-   * listKnows returns those too â€” resolution happens in knows.ts.
+   * listKnows returns those too — resolution happens in knows.ts.
    */
   listKnows(ownerId: string): Promise<KnowsConnection[]>;
   /** Link two contacts. Returns the existing link if they're already linked. */

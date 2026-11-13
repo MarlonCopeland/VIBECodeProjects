@@ -30,6 +30,10 @@ export {
   type CsvSingleField,
 } from './csvMapping';
 
+// vCard (.vcf) import/export — pure engine in ./vcardMapping, re-exported for
+// the same one-import-site reason.
+export { contactsToVcard, vcardToContacts, vcardsToContacts, type VCardImportResult } from './vcardMapping';
+
 export const CSV_HEADER = [
   'first_name',
   'last_name',
@@ -126,14 +130,10 @@ export function csvToContacts(text: string): CsvImportResult {
 // Dedupe (device + CSV import share it)
 // ---------------------------------------------------------------------------
 
-export function normalizePhone(number: string): string {
-  const digits = number.replace(/\D/g, '');
-  return digits.length > 10 ? digits.slice(-10) : digits;
-}
-
-export function normalizeEmail(address: string): string {
-  return address.trim().toLowerCase();
-}
+// The normalisers live in ./contactMerge (pure) so merge and import dedupe
+// share one definition; re-exported here for existing callers.
+import { normalizeEmail, normalizePhone } from './contactMerge';
+export { normalizeEmail, normalizePhone };
 
 /**
  * Split candidates into new vs. already-present, matching on any shared
@@ -267,10 +267,21 @@ export async function fetchDeviceContacts(): Promise<DeviceContactsResult> {
 // ---------------------------------------------------------------------------
 
 /** Open a file picker and return the chosen CSV's text (null if canceled). */
-export async function pickCsvText(): Promise<string | null> {
+export function pickCsvText(): Promise<string | null> {
+  return pickTextFile(['text/csv', 'text/comma-separated-values', 'text/plain']);
+}
+
+/** Open a file picker for a .vcf and return its text (null if canceled).
+ * Android often reports .vcf as text/x-vcard (or nothing useful), so the
+ * plain-text and catch-all types keep the file selectable there. */
+export function pickVcfText(): Promise<string | null> {
+  return pickTextFile(['text/vcard', 'text/x-vcard', 'text/directory', 'text/plain', '*/*']);
+}
+
+async function pickTextFile(types: string[]): Promise<string | null> {
   const DocumentPicker = await import('expo-document-picker');
   const result = await DocumentPicker.getDocumentAsync({
-    type: ['text/csv', 'text/comma-separated-values', 'text/plain'],
+    type: types,
     copyToCacheDirectory: true,
   });
   if (result.canceled || result.assets.length === 0) return null;
@@ -283,10 +294,11 @@ export async function pickCsvText(): Promise<string | null> {
   return FileSystem.readAsStringAsync(uri);
 }
 
-/** Write CSV text to a file and open the platform share sheet (web: download). */
-export async function shareCsv(fileName: string, csvText: string): Promise<void> {
+/** Write CSV text to a file and open the platform share sheet (web: download).
+ * `mimeType` lets the same plumbing share a .vcf (text/vcard). */
+export async function shareCsv(fileName: string, csvText: string, mimeType = 'text/csv'): Promise<void> {
   if (Platform.OS === 'web') {
-    const blob = new Blob([csvText], { type: 'text/csv' });
+    const blob = new Blob([csvText], { type: mimeType });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -300,7 +312,7 @@ export async function shareCsv(fileName: string, csvText: string): Promise<void>
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(uri, csvText);
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(uri, { mimeType: 'text/csv', dialogTitle: fileName });
+    await Sharing.shareAsync(uri, { mimeType, dialogTitle: fileName });
   } else {
     throw new Error('Sharing is not available on this device.');
   }

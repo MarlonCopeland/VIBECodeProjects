@@ -20,7 +20,7 @@ import { profileService } from '../../../src/features/profile';
 import { notificationService } from '../../../src/features/notifications';
 import { toAppError } from '../../../src/lib/errors';
 import { useContacts } from '../../../src/features/contacts/ContactsContext';
-import { contactsToCsv, interactionsToCsv, shareCsv } from '../../../src/features/contacts/importExport';
+import { contactsToCsv, contactsToVcard, interactionsToCsv, shareCsv } from '../../../src/features/contacts/importExport';
 import { notify } from '../../../src/lib/notify';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 import { fullSuiteEnabled } from '../../../src/features/suite/suiteService';
@@ -64,6 +64,20 @@ export default function SettingsScreen() {
       await shareCsv('contacts.csv', contactsToCsv(contacts));
       await shareCsv('interactions.csv', interactionsToCsv(contacts, interactions));
       notify('Export complete', 'contacts.csv and interactions.csv were shared.');
+    } catch (e) {
+      notify('Export failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  // vCard is the "hand it to another app" format: names, phones, emails,
+  // company, title and notes only (Legend-only fields stay CSV-exclusive).
+  const exportVcard = async () => {
+    setExporting(true);
+    try {
+      await shareCsv('contacts.vcf', contactsToVcard(contacts), 'text/vcard');
+      notify('Export complete', 'contacts.vcf was shared.');
     } catch (e) {
       notify('Export failed', e instanceof Error ? e.message : String(e));
     } finally {
@@ -305,12 +319,36 @@ export default function SettingsScreen() {
       <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>
         YOUR DATA
       </Text>
+      {/* Import lives here as well as behind the Contacts tab's + menu, so
+          "where's my data?" has one obvious home. Both buttons open the same
+          contacts-import screen, which previews and skips duplicates before
+          anything is saved. */}
+      <Card style={{ marginBottom: spacing.md }}>
+        <Text weight="semibold">Import contacts</Text>
+        <Text variant="caption" tone="muted" style={{ marginBottom: spacing.md }}>
+          Pull from this device's address book, map a .csv file (Legend's own export round-trips), or open a .vcf from another app. You see a preview,
+          with duplicates flagged, before anything is added.
+        </Text>
+        <View style={{ gap: spacing.sm }}>
+          <Button title="Import from phone" variant="secondary" onPress={() => router.push('/contacts-import?mode=device')} />
+          <Button title="Import from CSV" variant="secondary" onPress={() => router.push('/contacts-import?mode=csv')} />
+          <Button title="Import from vCard (.vcf)" variant="secondary" onPress={() => router.push('/contacts-import?mode=vcf')} />
+        </View>
+      </Card>
       <Card style={{ marginBottom: spacing.xl }}>
         <Text weight="semibold">Export everything</Text>
         <Text variant="caption" tone="muted" style={{ marginBottom: spacing.md }}>
           {`Shares contacts.csv and interactions.csv — your whole network (${contacts.length} contact${contacts.length === 1 ? '' : 's'}), yours to keep.`}
         </Text>
-        <Button title="Export contacts to CSV" variant="secondary" loading={exporting} onPress={() => void exportCsv()} />
+        <View style={{ gap: spacing.sm }}>
+          <Button title="Export contacts to CSV" variant="secondary" loading={exporting} onPress={() => void exportCsv()} />
+          <Button
+            title="Export contacts as vCard (.vcf)"
+            variant="secondary"
+            disabled={exporting}
+            onPress={() => void exportVcard()}
+          />
+        </View>
       </Card>
 
       <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>

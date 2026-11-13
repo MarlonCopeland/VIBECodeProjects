@@ -6,12 +6,13 @@
 // Node tests (test/support/nodeSqlDriver.ts + a fake clock) against a real
 // SQLite engine either way. See SYNC_DESIGN.md for why.
 //
-// KNOWN LIMITATION: PhoneEntry/EmailEntry have no stable id in the domain
-// model, so phone/email edits are delete-and-reinsert (whole-array replace)
-// rather than true per-item merge — tracked as TASKS.md Phase 8.2. Premises
-// already carry an id, so they get real upsert-by-id merge. Circle
-// pins/excludes are keyed by contact_id, already stable, so they also get
-// real per-item merge.
+// Phones, emails and premises all get upsert-by-id merge: an entry whose id
+// is already on the contact is updated in place (and only when it actually
+// changed, so its HLC stamp moves only for real edits), an entry missing from
+// the incoming list is tombstoned, and an entry without a known id is
+// inserted. Phone/email ids arrived in Phase 8.2; before that they were
+// delete-and-reinsert on every edit. Circle pins/excludes are keyed by
+// contact_id, already stable, so they also get real per-item merge.
 
 import type { ContactsApi } from '../../types';
 import type {
@@ -28,6 +29,7 @@ import type {
 } from '../../../features/contacts/types';
 import { fingerprintOf } from '../../../features/contacts/knows';
 import { migrate } from './schema';
+import { mergeContacts as mergeContactFields } from '../../../features/contacts/contactMerge';
 import type { Clock, IdGenerator, SqlDriver } from './types';
 
 export type SqliteContactsDeps = Clock & IdGenerator;
@@ -157,8 +159,8 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       nickname: r.nickname ?? undefined,
       company: r.company ?? undefined,
       title: r.title ?? undefined,
-      phones: (phonesBy.get(r.id) ?? []).map((p) => ({ label: p.label, number: p.number })),
-      emails: (emailsBy.get(r.id) ?? []).map((e) => ({ label: e.label, address: e.address })),
+      phones: (phonesBy.get(r.id) ?? []).map((p) => ({ id: p.id, label: p.label, number: p.number })),
+      emails: (emailsBy.get(r.id) ?? []).map((e) => ({ id: e.id, label: e.label, address: e.address })),
       avatarUrl: r.avatar_url,
       whereMet: r.where_met_place
         ? {
@@ -181,7 +183,60 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     }));
   }
 
-  /** Replace phones/emails wholesale (see file header); upsert premises by id. */
+  /**
+   * Per-item merge of one phone/email list (see file header). `value` is the
+   * number/address column. An incoming id that isn't on this contact but is
+   * taken elsewhere (an entry copied from another contact) gets a fresh id
+   * rather than colliding on the primary key.
+   */
+  async function mergeEntries(
+    d: SqlDriver,
+    table: 'contact_phones' | 'contact_emails',
+    valueCol: 'number' | 'address',
+    contactId: string,
+    incoming: { id?: string; label: string; value: string }[],
+    hlc: string,
+  ): Promise<void> {
+    const existing = await d.getAllAsync<{ id: string; label: string; value: string }>(
+      `SELECT id, label, ${valueCol} AS value FROM ${table} WHERE contact_id = ? AND deleted_at IS NULL`,
+      [contactId],
+    );
+    const byId = new Map(existing.map((r) => [r.id, r]));
+    const keep = new Set(incoming.map((e) => e.id).filter((id): id is string => !!id && byId.has(id)));
+    for (const r of existing) {
+      if (!keep.has(r.id)) {
+        await d.runAsync(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`, [hlc, hlc, r.id]);
+      }
+    }
+    const seen = new Set<string>();
+    for (const e of incoming) {
+      const prev = e.id && !seen.has(e.id) ? byId.get(e.id) : undefined;
+      if (prev) {
+        seen.add(prev.id);
+        if (prev.label !== e.label || prev.value !== e.value) {
+          await d.runAsync(`UPDATE ${table} SET label = ?, ${valueCol} = ?, updated_at = ? WHERE id = ?`, [
+            e.label,
+            e.value,
+            hlc,
+            prev.id,
+          ]);
+        }
+        continue;
+      }
+      let id = e.id && !seen.has(e.id) ? e.id : deps.genId();
+      if (id === e.id) {
+        const taken = await d.getFirstAsync<{ id: string }>(`SELECT id FROM ${table} WHERE id = ?`, [id]);
+        if (taken) id = deps.genId();
+      }
+      seen.add(id);
+      await d.runAsync(
+        `INSERT INTO ${table} (id, contact_id, label, ${valueCol}, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)`,
+        [id, contactId, e.label, e.value, hlc],
+      );
+    }
+  }
+
+  /** Merge phones/emails and premises by id (see file header). */
   async function writeContactChildren(
     d: SqlDriver,
     contactId: string,
@@ -193,29 +248,25 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
     // engine diffs and merges on updated_at, so a delete must register as
     // the row's newest version or it would neither push nor win a merge.
     if (which.phones) {
-      await d.runAsync(
-        `UPDATE contact_phones SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, hlc, contactId],
+      await mergeEntries(
+        d,
+        'contact_phones',
+        'number',
+        contactId,
+        input.phones.map((p) => ({ id: p.id, label: p.label, value: p.number })),
+        hlc,
       );
-      for (const p of input.phones) {
-        await d.runAsync(
-          `INSERT INTO contact_phones (id, contact_id, label, number, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)`,
-          [deps.genId(), contactId, p.label, p.number, hlc],
-        );
-      }
     }
 
     if (which.emails) {
-      await d.runAsync(
-        `UPDATE contact_emails SET deleted_at = ?, updated_at = ? WHERE contact_id = ? AND deleted_at IS NULL`,
-        [hlc, hlc, contactId],
+      await mergeEntries(
+        d,
+        'contact_emails',
+        'address',
+        contactId,
+        input.emails.map((e) => ({ id: e.id, label: e.label, value: e.address })),
+        hlc,
       );
-      for (const e of input.emails) {
-        await d.runAsync(
-          `INSERT INTO contact_emails (id, contact_id, label, address, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, NULL)`,
-          [deps.genId(), contactId, e.label, e.address, hlc],
-        );
-      }
     }
 
     if (which.premises) {
@@ -503,6 +554,76 @@ export function createSqliteContacts(driver: SqlDriver, deps: SqliteContactsDeps
       // contact_knows rows are intentionally NOT tombstoned: the dangling
       // endpoint keeps its fingerprint so a re-imported copy of this person
       // can be suggested as the match (see knows.ts).
+    },
+
+    async mergeContacts(ownerId, keepId, dropId) {
+      if (keepId === dropId) throw new Error('Cannot merge a contact with itself');
+      const d = await db();
+      const rows = await d.getAllAsync<ContactRow>(
+        `SELECT * FROM contacts WHERE id IN (?, ?) AND owner_id = ? AND deleted_at IS NULL`,
+        [keepId, dropId, ownerId],
+      );
+      const [keep, drop] = await Promise.all(
+        [keepId, dropId].map(async (cid) => {
+          const row = rows.find((r) => r.id === cid);
+          if (!row) throw new Error('Contact not found');
+          return (await assembleContacts([row]))[0]!;
+        }),
+      );
+      const { merged, createdAt, premiseIdMap } = mergeContactFields(keep!, drop!, deps.genId);
+
+      // 1. Merged fields onto keep (children merge by id; drop's copied
+      //    entries arrive id-less / with fresh ids, so no key collisions).
+      await api.updateContact(ownerId, keepId, merged);
+      const hlc = await deps.nextHlc();
+      await d.runAsync(`UPDATE contacts SET created_at = ?, updated_at = ? WHERE id = ?`, [createdAt, hlc, keepId]);
+      // 2. Repoint drop's live interactions BEFORE the delete below, which
+      //    would otherwise tombstone them. updated_at moves so the repoint
+      //    syncs; premise ids follow their premise onto keep.
+      const its = await d.getAllAsync<{ id: string; premise_id: string | null }>(
+        `SELECT id, premise_id FROM interactions WHERE contact_id = ? AND deleted_at IS NULL`,
+        [dropId],
+      );
+      for (const it of its) {
+        const premiseId = it.premise_id ? (premiseIdMap[it.premise_id] ?? null) : null;
+        await d.runAsync(`UPDATE interactions SET contact_id = ?, premise_id = ?, updated_at = ? WHERE id = ?`, [
+          keepId,
+          premiseId,
+          hlc,
+          it.id,
+        ]);
+      }
+      // 3. Move drop's circle pins/excludes to keep, per circle. If keep
+      //    already has a pin OR an exclude in that circle, keep's wins and
+      //    drop's is left for the delete below. Otherwise drop's row is
+      //    repointed (same id, updated_at bumped so it syncs); should drop
+      //    somehow hold both in one circle, the pin wins.
+      const links = async (table: 'circle_pins' | 'circle_excludes', cid: string) =>
+        d.getAllAsync<{ id: string; circle_id: string }>(
+          `SELECT id, circle_id FROM ${table} WHERE contact_id = ? AND deleted_at IS NULL`,
+          [cid],
+        );
+      const [keepPins, keepExcl, dropPins, dropExcl] = await Promise.all([
+        links('circle_pins', keepId),
+        links('circle_excludes', keepId),
+        links('circle_pins', dropId),
+        links('circle_excludes', dropId),
+      ]);
+      const settled = new Set([...keepPins, ...keepExcl].map((l) => l.circle_id));
+      for (const [table, rowsOf] of [
+        ['circle_pins', dropPins],
+        ['circle_excludes', dropExcl],
+      ] as const) {
+        for (const l of rowsOf) {
+          if (settled.has(l.circle_id)) continue;
+          settled.add(l.circle_id);
+          await d.runAsync(`UPDATE ${table} SET contact_id = ?, updated_at = ? WHERE id = ?`, [keepId, hlc, l.id]);
+        }
+      }
+      // 4. Tombstone drop and its remaining children (anything not moved).
+      await api.deleteContact(ownerId, dropId);
+      const out = await d.getAllAsync<ContactRow>(`SELECT * FROM contacts WHERE id = ?`, [keepId]);
+      return (await assembleContacts(out))[0]!;
     },
 
     async listInteractions(ownerId) {

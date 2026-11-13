@@ -63,6 +63,8 @@ interface ContactsContextValue {
   createContact(input: ContactInput): Promise<Contact>;
   updateContact(id: string, patch: ContactPatch): Promise<Contact>;
   deleteContact(id: string): Promise<void>;
+  /** Merge duplicate `dropId` into `keepId`; drop's history moves to keep. */
+  mergeContacts(keepId: string, dropId: string): Promise<Contact>;
   /** Bulk add with duplicate filtering (device/CSV import). */
   importContacts(inputs: ContactInput[]): Promise<ImportSummary>;
 
@@ -193,6 +195,21 @@ export function ContactsProvider({ children }: { children: React.ReactNode }) {
         setContacts((prev) => prev.filter((c) => c.id !== id));
         setInteractions((prev) => prev.filter((i) => i.contactId !== id));
         notifySyncWrite();
+      },
+      async mergeContacts(keepId, dropId) {
+        const owner = requireOwner();
+        const row = await backend.contacts.mergeContacts(owner, keepId, dropId);
+        setContacts((prev) => prev.filter((c) => c.id !== dropId).map((c) => (c.id === keepId ? row : c)));
+        // Interactions moved contact (and premise ids) and drop's circle pins
+        // were tombstoned: re-read both rather than patching state by hand.
+        const [its, cir] = await Promise.all([
+          backend.contacts.listInteractions(owner),
+          backend.contacts.listCircles(owner),
+        ]);
+        setInteractions(its);
+        setCircles(cir);
+        notifySyncWrite();
+        return row;
       },
       async importContacts(inputs) {
         const owner = requireOwner();

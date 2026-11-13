@@ -198,6 +198,13 @@ export default function ContactsScreen() {
             icon: 'download-outline',
             onPress: () => router.push('/contacts-import?mode=csv'),
           },
+          {
+            key: 'vcf',
+            label: 'Import from vCard',
+            detail: 'Pick a .vcf exported from another contacts app',
+            icon: 'card-outline',
+            onPress: () => router.push('/contacts-import?mode=vcf'),
+          },
         ]}
       />
       <View style={{ paddingHorizontal: spacing.lg, paddingTop: spacing.md }}>

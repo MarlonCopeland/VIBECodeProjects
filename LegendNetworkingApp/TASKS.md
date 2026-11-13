@@ -215,11 +215,17 @@ user can pin/exclude to override.
       the project URL. **Remaining manual step:** paste the anon key into
       `.env` (`SUPABASE_ANON_KEY=`, from Dashboard → Project Settings → API
       Keys), then smoke-test sign-up + contact CRUD in the app.
-- [ ] Import/export entry points in Settings too (currently only on the
-      Contacts tab header)
+- [x] Import/export entry points in Settings too (currently only on the
+      Contacts tab header) — 2026-11-01: Settings → YOUR DATA now has an
+      "Import contacts" card (Import from phone / Import from CSV, both open
+      the same `contacts-import` screen as the Contacts + menu) above the
+      existing "Export everything" card. Not yet eyeballed on a device.
 - [ ] "Fading contacts" nudge: settings toggle + local notification when a
       contact is about to drop a tier (uses existing notifications module)
-- [ ] Grade weights/half-life user-tunable in Settings (persisted)
+- [x] Grade weights/half-life user-tunable in Settings (persisted) — already
+      built (found 2026-11-01): `app/(app)/settings/grading.tsx` edits
+      weights, half-life, decay toggle and tier thresholds, persisted via
+      `AppSettingsContext` → `storage`
 - [ ] Empty states, error toasts, loading polish across new screens
 - [ ] Update `documentation.md` + README screenshots; delete dead template
       copy that no longer applies
@@ -266,9 +272,15 @@ user can pin/exclude to override.
         browser were available in this environment. See
         [`TESTING.md`](./TESTING.md) for the manual walkthrough that closes
         this gap.
-- [ ] **8.2 Oplog groundwork**
-  - [ ] Add stable `id` to `PhoneEntry`/`EmailEntry` so phones/emails get
-        real per-item merge like premises already do
+- [x] **8.2 Oplog groundwork**
+  - [x] Add stable `id` to `PhoneEntry`/`EmailEntry` so phones/emails get
+        real per-item merge like premises already do — 2026-11-01: `id?`
+        on both types; `sqliteContacts.ts` reads the row ids back and
+        merges by id (`mergeEntries`: update-if-changed, tombstone removed,
+        insert id-less or foreign-id entries with a fresh id). No backfill
+        needed: the SQLite rows always had ids. Edit form keys/edits/removes
+        rows by id (new rows get a UUID). CSV/vCard/device import stay
+        id-less and get ids on insert. 5 new SQLite tests (69 total).
   - [x] ~~`changes` table + append-on-write~~ — superseded (2026-08-05): the
         tables themselves are the oplog. Every row's `updated_at` HLC is now
         bumped on every change INCLUDING tombstones, and `interactions`
@@ -505,12 +517,62 @@ free-in-beta stub until real StoreKit billing exists.
 ### Backlog (post-MVP ideas, not scheduled)
 
 - [ ] Reminders/recurring cadence per contact ("touch every 30 days")
-- [ ] Contact merge tool for import dupes
-- [ ] vCard (.vcf) import/export alongside CSV
-- [ ] Premise autocomplete from existing tags
-- [ ] Grade history sparkline on contact detail
-- [ ] Group visit logging ("I saw these 5 people at X event" → one action logs
-      a `premise` interaction for all)
+- [x] Contact merge tool for import dupes — 2026-11-01: pure
+      `mergeContacts(keep, drop)` in `src/features/contacts/contactMerge.ts`
+      (phones/emails unioned with the import dedupe's normalisers, premises
+      by kind+label with tag union, keep's ids kept, blanks filled from drop,
+      notes concatenated, favorite either, earliest createdAt);
+      `sqliteContacts.mergeContacts` writes it onto keep, repoints drop's
+      interactions (and premise ids), then tombstones drop so sync sees it;
+      `test/contactMerge.test.ts` (3 cases incl. real SQLite). UI: contact
+      screen "Merge with…" (find the duplicate by name, confirm; this
+      contact is kept). Drop's circle pins/excludes move to keep per circle
+      (keep's own pin or exclude in a circle wins; if drop had both, the pin
+      wins). Not yet tried on a device.
+- [x] vCard (.vcf) import/export alongside CSV — 2026-11-01 (not yet tried on a device):
+  - [x] Engine: `src/lib/vcard.ts` (unfold/fold at 75 octets, params,
+        escapes, multi-card files) + `src/features/contacts/vcardMapping.ts`
+        (`vcardToContacts` for 3.0/4.0: FN/N, NICKNAME, ORG, TITLE, TEL/EMAIL
+        with TYPE labels and `tel:`/`mailto:` URIs, NOTE; `contactsToVcard`
+        writes 3.0). Re-exported from `importExport.ts`. Tests:
+        `test/vcard.test.ts` (11 cases incl. round-trip). Imports tag
+        `source: 'csv'` (DB check constraint allows only manual/device/csv).
+        Where-met, premises and favorite aren't exported (no vCard field).
+  - [x] Export button: Settings → YOUR DATA → "Export contacts as vCard"
+        (`shareCsv` gained an appended `mimeType` param). Not yet tried on
+        a device.
+  - [x] Import UI: `contacts-import.tsx?mode=vcf` picks a .vcf
+        (`pickVcfText`, shares the picker with `pickCsvText`), runs
+        `vcardToContacts`, skips column mapping and lands on the shared
+        dedupe preview; nameless cards show in the "card(s) skipped"
+        banner, a file with no usable cards shows the failure screen.
+        Entry points: Contacts + menu ("Import from vCard") and Settings →
+        YOUR DATA. Known gap: 2.1 QUOTED-PRINTABLE values are not decoded.
+- [x] Premise autocomplete from existing tags — 2026-11-01:
+      `src/features/contacts/premiseSuggest.ts` (pure: distinct labels/tags
+      across the network, case-insensitive, prefix > substring, then use
+      count, then recency; tag field completes the token after the last
+      comma and skips tags already listed; `test/premiseSuggest.test.ts`,
+      7 cases). Contact edit form shows up to 4 label / 5 tag chips under
+      each premise field while typing. Not yet tried on a device.
+- [x] Grade history sparkline on contact detail — 2026-11-01: computed, not
+      stored. `gradeHistory()` in `grading.ts` replays `computeGrade` at 27
+      weekly samples (~6 months) under the current weights/half-life,
+      excluding interactions after each sample (3 new cases in
+      `test/grading.test.ts`). `GradeSparkline.tsx` (react-native-svg, fixed
+      0-100 axis, dashed tier guides, "up N / down N / steady" caption) sits
+      under the grade badge; hidden when there's no history. Not yet tried
+      on a device.
+- [x] Group visit logging ("I saw these 5 people at X event" → one action logs
+      a `premise` interaction for all) — 2026-11-01: contact detail's "Log an
+      interaction" card has an "Also with…" picker (name search, removable
+      chips); "Log it for N people" logs the chosen kind (premise, visit, any)
+      with one shared timestamp and note for everyone, through the normal
+      `logInteraction` path one by one (partial failure reports "k of N").
+      Pure logic in `src/features/contacts/groupLog.ts`
+      (`buildGroupInteractions`, `searchContactsForGroup`;
+      `test/groupLog.test.ts`, 5 cases). No per-contact `premiseId` is set.
+      Not yet tried on a device.
 
 ---
 
