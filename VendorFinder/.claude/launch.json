@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "vendorfinder-web",
+      "runtimeExecutable": "C:\\Users\\Marlon\\AppData\\Local\\nvm\\v20.20.2\\node.exe",
+      "runtimeArgs": ["node_modules/expo/bin/cli", "start", "--web", "--port", "8082"],
+      "port": 8082
+    }
+  ]
+}

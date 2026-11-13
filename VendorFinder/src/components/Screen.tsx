@@ -22,6 +22,8 @@ interface ScreenProps {
   center?: boolean;
   edges?: readonly Edge[];
   style?: ViewStyle;
+  /** Skip the themed background so a decorative layer behind can show through. */
+  transparent?: boolean;
 }
 
 export function Screen({
@@ -31,6 +33,7 @@ export function Screen({
   center = false,
   edges = ['top', 'bottom'],
   style,
+  transparent = false,
 }: ScreenProps) {
   const { colors, spacing } = useTheme();
 
@@ -53,7 +56,7 @@ export function Screen({
   );
 
   return (
-    <SafeAreaView style={[styles.flex, { backgroundColor: colors.background }]} edges={edges}>
+    <SafeAreaView style={[styles.flex, { backgroundColor: transparent ? 'transparent' : colors.background }]} edges={edges}>
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}

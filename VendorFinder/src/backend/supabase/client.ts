@@ -27,6 +27,10 @@ export function getSupabase(): SupabaseClient {
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,
+      // signInWithProvider reads `?code=` off the redirect and exchanges it.
+      // The implicit default returns tokens in the URL hash instead, so the
+      // exchange never ran and OAuth sign-in silently returned no session.
+      flowType: 'pkce',
     },
   });
   return client;
