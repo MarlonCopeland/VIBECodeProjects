@@ -22,6 +22,7 @@ import type {
   AuthChangeCallback,
   Backend,
   BroadcastsApi,
+  EmailOtpKind,
   FavoritesApi,
   NotificationsApi,
   OAuthProvider,
@@ -344,6 +345,18 @@ const auth: AuthApi = {
     if (!user) throw new Error('Not signed in');
     user.password = newPassword;
     await persist();
+  },
+
+  async redeemAuthLink(_url: string): Promise<Session | null> {
+    // Demo mode never sends real emails, so there is no link to redeem.
+    await load();
+    return null;
+  },
+
+  async verifyEmailOtp(_email: string, _token: string, _kind: EmailOtpKind): Promise<Session> {
+    // The demo backend never sends email, so there is no code to verify.
+    await load();
+    throw new Error('Email codes are not used by the offline demo backend.');
   },
 
   async resendVerification(_email: string): Promise<void> {

@@ -207,6 +207,10 @@ export interface SubscriptionSummary {
 // ---- API surfaces ----------------------------------------------------------
 
 /** The auth surface every backend must provide. */
+/** Which emailed code is being redeemed. */
+export type EmailOtpKind = 'signup' | 'recovery';
+
+/** The auth surface every backend must provide. */
 export interface AuthApi {
   getSession(): Promise<Session | null>;
   refreshSession(): Promise<Session | null>;
@@ -219,6 +223,18 @@ export interface AuthApi {
 
   sendPasswordReset(email: string): Promise<void>;
   updatePassword(newPassword: string): Promise<void>;
+  /**
+   * Consume an auth redirect deep link (password recovery, email
+   * confirmation) and establish whatever session it carries. Returns null
+   * when the link carries no credentials. Throws when the link is expired or
+   * malformed, so callers can show the user a real reason.
+   */
+  redeemAuthLink(url: string): Promise<Session | null>;
+  /**
+   * Redeem an emailed CODE instead of the link. A code works from any device;
+   * a link only works on the device that opens it.
+   */
+  verifyEmailOtp(email: string, token: string, kind: EmailOtpKind): Promise<Session>;
 
   resendVerification(email: string): Promise<void>;
   /** Confirm a verification code (local demo) or re-read status (Supabase). */

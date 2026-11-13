@@ -2,8 +2,8 @@
 // Email/password sign-in with OAuth options and links to sign-up + reset.
 
 import { useState } from 'react';
-import { View } from 'react-native';
-import { Link, useRouter } from 'expo-router';
+import { Platform, StyleSheet, View, type ViewStyle } from 'react-native';
+import { Link, useLocalSearchParams, useRouter } from 'expo-router';
 import { Screen } from '../../src/components/Screen';
 import { Text } from '../../src/components/Text';
 import { TextField } from '../../src/components/TextField';
@@ -14,11 +14,26 @@ import { SocialAuthButtons } from '../../src/features/auth/components/SocialAuth
 import { useTheme } from '../../src/theme/ThemeProvider';
 import { toAppError } from '../../src/lib/errors';
 import { BACKEND } from '../../src/config/env';
+import {
+  AuroraBackground,
+  VendorMarqueeBackground,
+} from '../../src/features/auth/components/LoginBackgrounds';
+
+// Login background under evaluation. Preview others with `/login?bg=marquee`
+// or `/login?bg=classic`; drop the param plumbing once one is chosen.
+type LoginBg = 'aurora' | 'marquee' | 'classic';
+const DEFAULT_BG: LoginBg = 'aurora';
 
 export default function LoginScreen() {
   const { signIn } = useAuth();
-  const { spacing } = useTheme();
+  const { colors, spacing, radius } = useTheme();
   const router = useRouter();
+  const params = useLocalSearchParams<{ bg?: string }>();
+  const bg: LoginBg =
+    params.bg === 'aurora' || params.bg === 'marquee' || params.bg === 'classic'
+      ? params.bg
+      : DEFAULT_BG;
+  const styled = bg !== 'classic';
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -38,8 +53,25 @@ export default function LoginScreen() {
     }
   };
 
-  return (
-    <Screen scroll center>
+  const cardStyle: ViewStyle | null = styled
+    ? {
+        width: '100%',
+        maxWidth: 440,
+        alignSelf: 'center',
+        padding: spacing.xl,
+        borderRadius: radius.xl,
+        // 8-digit hex: theme surface at ~75% so the background glows through.
+        backgroundColor: `${colors.surface}BF`,
+        borderWidth: 1,
+        borderColor: 'rgba(255,255,255,0.10)',
+        ...(Platform.OS === 'web'
+          ? ({ backdropFilter: 'blur(18px)' } as unknown as ViewStyle)
+          : null),
+      }
+    : null;
+
+  const form = (
+    <View style={cardStyle}>
       <View style={{ marginBottom: spacing.xl }}>
         <Text variant="display" weight="bold">
           Vendor Finder
@@ -97,6 +129,25 @@ export default function LoginScreen() {
           </Text>
         </Link>
       </View>
-    </Screen>
+    </View>
+  );
+
+  if (!styled) {
+    return (
+      <Screen scroll center>
+        {form}
+      </Screen>
+    );
+  }
+
+  return (
+    <View style={{ flex: 1 }}>
+      {bg === 'aurora' ? <AuroraBackground /> : <VendorMarqueeBackground />}
+      <View style={StyleSheet.absoluteFill}>
+        <Screen scroll center transparent>
+          {form}
+        </Screen>
+      </View>
+    </View>
   );
 }

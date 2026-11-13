@@ -13,7 +13,7 @@ import React, {
   useState,
 } from 'react';
 import { backend } from '../../backend';
-import type { AppUser, OAuthProvider, SignInInput } from '../../backend/types';
+import type { AppUser, EmailOtpKind, OAuthProvider, SignInInput } from '../../backend/types';
 import * as authService from './authService';
 import type { SignUpParams, VendorInfo } from './authService';
 import { checkPermission } from './rbac';
@@ -37,6 +37,10 @@ interface AuthContextValue {
   signInWithMagicLink: (email: string) => Promise<void>;
   sendPasswordReset: (email: string) => Promise<void>;
   updatePassword: (password: string) => Promise<void>;
+  /** Redeem an emailed code; on success the user is signed in. */
+  verifyEmailCode: (email: string, token: string, kind: EmailOtpKind) => Promise<void>;
+  /** Consume a recovery/confirmation deep link; returns true if it signed us in. */
+  redeemAuthLink: (url: string) => Promise<boolean>;
   resendVerification: () => Promise<void>;
   confirmVerification: (code: string) => Promise<void>;
   refresh: () => Promise<void>;
@@ -155,6 +159,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await authService.resendVerification(realUser.email);
   }, [realUser?.email]);
 
+  const verifyEmailCode = useCallback(
+    async (email: string, token: string, kind: EmailOtpKind) => {
+      const session = await authService.verifyEmailOtp(email, token, kind);
+      setRealUser(session.user);
+      setActingAs(null);
+      setStatus('authenticated');
+    },
+    [],
+  );
+
+  const redeemAuthLink = useCallback(async (url: string) => {
+    const session = await authService.redeemAuthLink(url);
+    if (session?.user) {
+      setRealUser(session.user);
+      setActingAs(null);
+      setStatus('authenticated');
+      return true;
+    }
+    return false;
+  }, []);
+
   const confirmVerification = useCallback(
     async (code: string) => {
       const session = await authService.confirmVerification(code);
@@ -231,6 +256,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signInWithMagicLink: authService.signInWithMagicLink,
       sendPasswordReset: authService.sendPasswordReset,
       updatePassword: authService.updatePassword,
+      verifyEmailCode,
+      redeemAuthLink,
       resendVerification,
       confirmVerification,
       refresh,
@@ -251,6 +278,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       signIn,
       signUp,
       signInWithProvider,
+      verifyEmailCode,
+      redeemAuthLink,
       resendVerification,
       confirmVerification,
       refresh,

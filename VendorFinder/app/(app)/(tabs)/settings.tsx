@@ -4,6 +4,7 @@
 
 import { useState } from 'react';
 import { Alert, Platform, View } from 'react-native';
+import { router } from 'expo-router';
 import { Screen } from '../../../src/components/Screen';
 import { Text } from '../../../src/components/Text';
 import { Card } from '../../../src/components/Card';
@@ -14,6 +15,7 @@ import { isFeatureEnabled } from '../../../src/config/features';
 import { profileService } from '../../../src/features/profile';
 import { notificationService } from '../../../src/features/notifications';
 import { toAppError } from '../../../src/lib/errors';
+import { demoHref } from '../../../src/features/demo';
 
 const THEME_OPTIONS: ColorSchemePreference[] = ['system', 'light', 'dark'];
 
@@ -98,6 +100,13 @@ export default function SettingsScreen() {
           </View>
         </>
       ) : null}
+
+      <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>
+        DEMOS
+      </Text>
+      <View style={{ marginBottom: spacing.xl }}>
+        <Button title="✨ Animation demos" variant="secondary" onPress={() => router.push(demoHref(''))} />
+      </View>
 
       <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>
         ACCOUNT
