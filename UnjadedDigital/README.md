@@ -52,6 +52,10 @@ password: Password1
 To use Supabase, set `APP_BACKEND=supabase`, add `SUPABASE_URL` /
 `SUPABASE_ANON_KEY`, and apply the schema — see [`supabase/README.md`](./supabase/README.md).
 
+For the full service integration (Supabase, Resend email, Expo/EAS) and store
+deployment (TestFlight / App Store, Google Play) of the apps built on this
+template, see [`INTEGRATION_AND_DEPLOYMENT.md`](./INTEGRATION_AND_DEPLOYMENT.md).
+
 ## Turning modules on/off
 
 Each optional feature is a flag in `.env` (read in `app.config.ts`, resolved in
