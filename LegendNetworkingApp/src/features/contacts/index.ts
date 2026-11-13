@@ -5,6 +5,7 @@ import { FEATURE_MANIFESTS, isFeatureEnabled } from '../../config/features';
 
 export * from './types';
 export * from './grading';
+export * from './knows';
 export { useContacts, ContactsProvider } from './ContactsContext';
 export * as importExport from './importExport';
 export { GradeBadge } from './components/GradeBadge';

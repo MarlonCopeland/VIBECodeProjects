@@ -43,21 +43,17 @@ all come from it — see its README/ARCHITECTURE for template internals).
 ```bash
 nvm use
 npm install
-cp .env.example .env      # defaults to the local demo backend
+cp .env.example .env      # defaults to the live Supabase project
 npm run start             # press w / i / a for web / iOS / Android
 ```
 
-The default `.env` uses `APP_BACKEND=local` with a seeded demo account and a
-demo network spanning every rarity tier:
+Test with **Supabase accounts**: `npm run seed:test-users` creates the test
+logins (free, sync, full-suite owner, unverified) — see [`TESTING.md`](./TESTING.md).
+The offline demo backend (`APP_BACKEND=local`, `demo@unjadeddigital.com` /
+`Password1`) is for troubleshooting only.
 
-```
-email:    demo@unjadeddigital.com
-password: Password1
-```
-
-For a real backend, set `APP_BACKEND=supabase` + `SUPABASE_URL` /
-`SUPABASE_ANON_KEY` and apply every file in `supabase/migrations/` in order
-(`0001` … `0005`) — see [`supabase/README.md`](./supabase/README.md). Note that
+Migrations live in `supabase/migrations/` (`0001` … `0006`) — see
+[`supabase/README.md`](./supabase/README.md). Note that
 `0005` drops the plaintext contact tables: Supabase holds accounts, metrics and
 **ciphertext only**. The full stack and service list is in
 [`Documentation.md` §2](./Documentation.md#2-tech-stack--services).

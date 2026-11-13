@@ -6,6 +6,7 @@ Several independent apps live side by side, each with its own `package.json`,
 | Directory | Stack | Node |
 | --- | --- | --- |
 | `LegendNetworkingApp/` | Expo SDK 54 + Supabase | **>=22** (`.nvmrc` = 22) |
+| `LegendDesktop/` | Electron + Vite + React DOM; imports `../LegendNetworkingApp/src` | **>=22** (`.nvmrc` = 22) |
 | `Net_Delver/` | Godot 4.6 | n/a |
 | `UnjadedDigital/`, `VendorFinder/` | Expo templates | see each `.nvmrc` |
 

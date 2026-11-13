@@ -50,3 +50,14 @@ content_path = "./supabase/templates/confirmation.html"
 [auth.email.template.recovery]
 subject = "Reset your Legend password"
 content_path = "./supabase/templates/recovery.html"
+
+# ---- Edge Functions (Full Suite purchase + desktop download) ---------------
+# verify-purchase and send-download-link require the caller's JWT (default).
+# These two are called by email links and by Apple/Google, which carry no
+# Supabase session — each checks its own credential instead (grant token /
+# store re-verification + STORE_WEBHOOK_SECRET). See supabase/functions/README.md.
+[functions.desktop-download]
+verify_jwt = false
+
+[functions.store-notifications]
+verify_jwt = false

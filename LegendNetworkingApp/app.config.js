@@ -101,6 +101,9 @@ module.exports = ({ config }) => ({
       },
     ],
     'expo-sqlite',
+    // In-app purchase (Legend Full Suite). Native module — needs a dev/EAS
+    // build; Expo Go simply reports purchases as unavailable.
+    'expo-iap',
     [
       'expo-image-picker',
       {
@@ -170,6 +173,12 @@ module.exports = ({ config }) => ({
     stripePriceTier1: process.env.STRIPE_PRICE_TIER1 || '',
     stripePriceTier2: process.env.STRIPE_PRICE_TIER2 || '',
 
+    // ---- Legend Full Suite (one-time IAP that unlocks + emails the desktop app)
+    // Must match the product ids in App Store Connect / Play Console and the
+    // FULL_SUITE_PRODUCT_IDS secret on the verify-purchase Edge Function.
+    fullSuiteProductIdIos: process.env.FULL_SUITE_PRODUCT_ID_IOS || 'com.unjadeddigital.legend.fullsuite',
+    fullSuiteProductIdAndroid: process.env.FULL_SUITE_PRODUCT_ID_ANDROID || 'full_suite',
+
     // ---- Feature flags (module registry) ----------------------------------
     // Flip these per app to include/exclude whole feature modules.
     features: {
@@ -182,6 +191,7 @@ module.exports = ({ config }) => ({
       circles: flag(process.env.FEATURE_CIRCLES, true),
       outreach: flag(process.env.FEATURE_OUTREACH, true),
       sync: flag(process.env.FEATURE_SYNC, true),
+      fullSuite: flag(process.env.FEATURE_FULL_SUITE, true),
     },
 
     router: {

@@ -17,6 +17,7 @@ import { useTheme } from '../../../src/theme/ThemeProvider';
 import { useContacts } from '../../../src/features/contacts/ContactsContext';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
 import { GradeBadge } from '../../../src/features/contacts/components/GradeBadge';
+import { KnowsSection } from '../../../src/features/contacts/components/KnowsSection';
 import { pointsToNextTier } from '../../../src/features/contacts/grading';
 import type { InteractionKind } from '../../../src/features/contacts/types';
 import { notify, confirm } from '../../../src/lib/notify';
@@ -207,6 +208,8 @@ export default function ContactDetailScreen() {
           </View>
         </Card>
       ) : null}
+
+      <KnowsSection contact={contact} />
 
       {contact.notes ? (
         <Card style={{ marginTop: spacing.md }}>

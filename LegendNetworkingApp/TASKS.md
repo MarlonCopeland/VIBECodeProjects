@@ -312,10 +312,18 @@ user can pin/exclude to override.
       on-device SQLite file at rest
 - [ ] **8.5 Full-vault export/import** — raw SQLite file, optionally
       passphrase-encrypted, hand-off without a server round-trip
-- [ ] **8.6 Desktop client (Electron)** — wraps the existing Expo web
-      build; adds a `betterSqlite3Driver.ts` implementing the same
-      `SqlDriver` interface for real on-device SQLite; mobile-only modules
-      (`expo-contacts`, `expo-sms`) simply aren't wired up there
+- [x] **8.6 Desktop client (Electron)** — built as `../LegendDesktop/`
+      (2026-10-17). Instead of wrapping the Expo web build it renders React
+      DOM views over THIS app's `src/` (providers, storage, grading, sync —
+      imported, not copied); SQLite is `node:sqlite` in Electron's main
+      process behind the same `SqlDriver` interface (no native rebuild).
+      Adds a desktop-only 3D Network map. See `LegendDesktop/README.md`.
+- [x] **Knows Connections** (2026-10-17) — on any contact, link the people
+      they know (`contact_knows` table, synced like every other table).
+      Strong by contact id; each endpoint keeps a name + phone fingerprint,
+      so after a contact is deleted and re-imported under a new id Legend
+      suggests the match and the user confirms a relink
+      (`src/features/contacts/knows.ts`, `test/knows.test.ts`).
 
 ### Phase 9 — Momentum: score, leaderboards & lootbox-lite
 

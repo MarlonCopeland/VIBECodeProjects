@@ -23,6 +23,7 @@ import { useContacts } from '../../../src/features/contacts/ContactsContext';
 import { contactsToCsv, interactionsToCsv, shareCsv } from '../../../src/features/contacts/importExport';
 import { notify } from '../../../src/lib/notify';
 import { useAppSettings } from '../../../src/features/settings/AppSettingsContext';
+import { fullSuiteEnabled } from '../../../src/features/suite/suiteService';
 
 const THEME_OPTIONS: ColorSchemePreference[] = ['system', 'light', 'dark'];
 
@@ -268,6 +269,22 @@ export default function SettingsScreen() {
           />
         </View>
       </Card>
+
+      {fullSuiteEnabled() ? (
+        <>
+          <Text variant="label" tone="muted" style={{ marginBottom: spacing.sm }}>
+            DESKTOP
+          </Text>
+          <View style={{ marginBottom: spacing.xl }}>
+            {navRow(
+              'desktop-outline',
+              'Legend Full Suite',
+              'Legend for Windows, macOS & Linux · download link by email',
+              '/(app)/full-suite',
+            )}
+          </View>
+        </>
+      ) : null}
 
       {isFeatureEnabled('sync') ? (
         <>

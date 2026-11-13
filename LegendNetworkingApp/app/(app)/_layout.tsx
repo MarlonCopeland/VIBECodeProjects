@@ -38,6 +38,7 @@ export default function AppLayout() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false, title: 'Legend' }} />
       <Stack.Screen name="contact/[id]" options={{ title: 'Contact' }} />
       <Stack.Screen name="contact/edit" options={{ title: 'Contact', presentation: 'modal' }} />
+      <Stack.Screen name="contact/knows" options={{ title: 'Knows', presentation: 'modal' }} />
       <Stack.Screen name="contacts-import" options={{ title: 'Import Contacts' }} />
       <Stack.Screen name="circle/[id]" options={{ title: 'Circle' }} />
       <Stack.Screen name="circle/edit" options={{ title: 'Circle', presentation: 'modal' }} />
@@ -46,6 +47,7 @@ export default function AppLayout() {
       <Stack.Screen name="outreach/calls" options={{ title: 'Call List' }} />
       <Stack.Screen name="profile/edit" options={{ title: 'Edit Profile', presentation: 'modal' }} />
       <Stack.Screen name="subscription" options={{ title: 'Subscription' }} />
+      <Stack.Screen name="full-suite" options={{ title: 'Legend Full Suite' }} />
       <Stack.Screen name="tutorial" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
     </Stack>
   );

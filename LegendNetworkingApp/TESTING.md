@@ -1,4 +1,47 @@
-# Testing Phase 8.1 (SQLite storage) by hand
+# Testing Legend
+
+## Test logins — Supabase first (decided 2026-10-17)
+
+All sign-in testing (phone and desktop) uses **real accounts on the Legend
+Supabase project** (`krxszvviuqlzxxcvhyss`). `.env.example` already points
+there (`APP_BACKEND=supabase`).
+
+Create or reset the test accounts once (and again any time one gets into a
+weird state):
+
+```powershell
+cd LegendNetworkingApp
+$env:SUPABASE_SERVICE_ROLE_KEY = "<service_role key: Dashboard → Project Settings → API keys>"
+npm run seed:test-users
+Remove-Item Env:SUPABASE_SERVICE_ROLE_KEY
+```
+
+| Account | What it tests |
+| --- | --- |
+| `…+legend-free@…` | Plain confirmed account, no purchases |
+| `…+legend-sync@…` | Active Legend Sync (beta) subscription |
+| `…+legend-suite@…` | Owns Legend Full Suite — the desktop app opens; "Email me the download link" works |
+| `…+legend-unverified@…` | Never confirmed — lands on the verify-email code screen |
+
+Addresses are plus-addresses of one inbox (`TEST_EMAIL_BASE`), so every
+confirmation and download email arrives in one place. Passwords are generated
+once, kept in the gitignored `scripts/.test-users.local.json`, and written into
+the Obsidian note **UNJADEDDIGITAL/Legend - Test Logins** — never into git.
+
+**Store purchases** (the Full Suite IAP) also need a store-side tester: an App
+Store Connect *Sandbox* Apple Account on the iPhone, or a Play Console
+*license tester* Google account on Android, and a dev/EAS build (Expo Go
+can't load in-app purchases). See `supabase/functions/README.md`.
+
+**The local demo backend is troubleshooting only.** Set `APP_BACKEND=local`
+(or build the `development-local` EAS profile) and sign in with
+`demo@unjadeddigital.com` / `Password1` when you need to rule the backend out.
+The walkthrough below predates Supabase accounts and is that troubleshooting
+path.
+
+---
+
+# Testing Phase 8.1 (SQLite storage) by hand — local backend (troubleshooting)
 
 This is the manual verification `TASKS.md` Phase 8.1 still needs — no
 emulator or connected browser was available in the environment that built

@@ -34,3 +34,6 @@ yarn-error.*
 
 # TypeScript build info
 *.tsbuildinfo
+
+# test-account passwords (scripts/seed-test-users.mjs)
+scripts/.test-users.local.json

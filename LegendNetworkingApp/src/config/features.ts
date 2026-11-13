@@ -19,6 +19,7 @@ export const FEATURE_IDS = [
   'notifications',
   'payments',
   'sync',
+  'fullSuite',
 ] as const;
 
 export type FeatureId = (typeof FEATURE_IDS)[number];
@@ -87,6 +88,13 @@ export const FEATURE_MANIFESTS: Record<FeatureId, FeatureManifest> = {
     description: 'Stripe-backed subscription tiers with a pluggable payment provider.',
     core: false,
   },
+  fullSuite: {
+    id: 'fullSuite',
+    title: 'Legend Full Suite',
+    description:
+      'One-time App Store / Google Play purchase that unlocks Legend for Windows, macOS and Linux; the download link is emailed to the account. Requires the Supabase backend.',
+    core: false,
+  },
   sync: {
     id: 'sync',
     title: 'Legend Sync',
@@ -106,6 +114,7 @@ const DEFAULTS: FeatureFlags = {
   notifications: true,
   payments: false,
   sync: true,
+  fullSuite: true,
 };
 
 function resolveFlags(): FeatureFlags {

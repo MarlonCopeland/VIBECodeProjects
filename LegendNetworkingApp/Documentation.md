@@ -120,13 +120,18 @@ want **Node 22.5+** (built-in `node:sqlite`); the other suites run on 20.
 ```bash
 nvm use
 npm install
-cp .env.example .env      # defaults to APP_BACKEND=local
+cp .env.example .env      # defaults to APP_BACKEND=supabase (the live project)
 npx expo start --lan      # scan QR with Expo Go (SDK 54) on the phone
 npm run typecheck && npm test
 ```
 
-Sign in with `demo@unjadeddigital.com` / `Password1`. First run seeds 12 demo
-contacts + one circle. Sample import files in the repo root:
+**Test logins are Supabase accounts.** `npm run seed:test-users` (needs the
+service-role key in the environment for that one command) creates/resets
+four accounts — free, sync, full-suite owner, unverified — and writes their
+passwords into the Obsidian note *UNJADEDDIGITAL/Legend - Test Logins*.
+See `TESTING.md`. The local demo backend (`APP_BACKEND=local`,
+`demo@unjadeddigital.com` / `Password1`) is **troubleshooting only**.
+Sample import files in the repo root:
 `sample-contacts.csv` (Legend format), `test-google-format.csv`
 (Google-Contacts-style headers — exercises the CSV mapping step).
 
@@ -179,7 +184,10 @@ Breaking changes that actually bit:
 
 `eas.json` profiles:
 
-- `development` — dev client, internal, local backend
+- `development` — dev client, internal, Supabase backend (needed for the
+  Full Suite in-app purchase, which Expo Go can't run)
+- `development-local` — the same dev client on the local demo backend, for
+  troubleshooting only
 - `preview` — internal distribution, Supabase backend
 - `production` — store distribution, auto-increment build number, Supabase
 - **`testflight`** — extends `production` but `APP_BACKEND=local`: the
@@ -282,5 +290,6 @@ doctor first when a fresh project won't boot.
 - Pin Node to the SDK's supported range and run `nvm use`.
 - Read Metro errors as "static import graph," not "runtime."
 - When an error points deep into `node_modules`, audit *your* config first.
-- Keep `APP_BACKEND=local` the default so "toolchain broken?" stays separable
-  from "backend misconfigured?".
+- Supabase is the default backend for testing (decided 2026-10-17). Flip to
+  `APP_BACKEND=local` only when you need to separate "toolchain broken?" from
+  "backend misconfigured?" — then flip back.
