@@ -514,6 +514,20 @@ free-in-beta stub until real StoreKit billing exists.
       npm test` green; contrast test passes for every background × scheme pair;
       entitlement migration verified by loading a pre-migration settings blob.
 
+### Phase 11 — Legend Assist: flesh out contacts, daily review, premise suggestions (PROPOSED)
+
+**Goal:** help the user finish thin contact records, debrief the day's new
+connections, and attach or create premises. **Assist** runs entirely
+on-device (rules, fuzzy matching, lightweight NLP); **Assist+** is a monthly
+upgrade that sends a pseudonymized slice of context to an LLM through a
+Supabase Edge Function proxy. Full design, privacy model, data model, and
+sub-phases 11.1–11.9: [`ASSIST_SPEC.md`](./ASSIST_SPEC.md).
+
+> **Hard constraint:** the alias ↔ identity map lives only on the device;
+> aliases are re-drawn per request; an egress guard blocks any request that
+> still contains a known vault identifier. Delivers the backlog's *Group visit
+> logging* and feeds the *Contact merge tool* and *Premise autocomplete*.
+
 ### Backlog (post-MVP ideas, not scheduled)
 
 - [ ] Reminders/recurring cadence per contact ("touch every 30 days")
